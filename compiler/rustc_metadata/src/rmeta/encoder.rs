@@ -4,12 +4,14 @@ use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::fs::File;
 use std::io::{Read, Seek, Write};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rustc_data_structures::fingerprint::Fingerprint;
 use rustc_data_structures::fx::{FxIndexMap, FxIndexSet};
 use rustc_data_structures::memmap::{Mmap, MmapMut};
+use rustc_data_structures::owned_slice::slice_owned;
 use rustc_data_structures::sync::{par_for_each_in, par_join};
 use rustc_data_structures::temp_dir::MaybeTempDir;
 use rustc_data_structures::thousands::usize_with_underscores;
@@ -3120,6 +3122,16 @@ pub fn encode_metadata(tcx: TyCtxt<'_>, path: &Path, ref_path: Option<&Path>) {
             Ok(_) => {}
             Err(err) => tcx.dcx().emit_fatal(FailCreateFileEncoder { err }),
         };
+        if let Some(ref_path) = ref_path {
+            // The stub is not a work product, so build it again from the reused header.
+            let file = std::fs::File::open(path)
+                .unwrap_or_else(|err| tcx.dcx().emit_fatal(FailCreateFileEncoder { err }));
+            let mmap = unsafe { Mmap::map(file) }
+                .unwrap_or_else(|err| tcx.dcx().emit_fatal(FailCreateFileEncoder { err }));
+            let blob = MetadataBlob::new(slice_owned(mmap, Deref::deref))
+                .expect("reused metadata work product is valid");
+            encode_metadata_stub(tcx, ref_path, blob.get_header().hashes);
+        }
         return;
     };
 
@@ -3160,21 +3172,25 @@ pub fn encode_metadata(tcx: TyCtxt<'_>, path: &Path, ref_path: Option<&Path>) {
         None,
     );
 
-    // Generate the metadata stub manually, as that is a small file compared to full metadata.
     if let Some(ref_path) = ref_path {
-        let _prof_timer = tcx.prof.verbose_generic_activity("generate_crate_metadata_stub");
-
-        with_encode_metadata_header::<DefIndexDefIdEncoder>(tcx, ref_path, |ecx| {
-            let header: LazyValue<CrateHeader> = ecx.lazy(CrateHeader {
-                name: tcx.crate_name(LOCAL_CRATE),
-                triple: tcx.sess.opts.target_triple.clone(),
-                hashes,
-                is_proc_macro_crate: false,
-                is_stub: true,
-            });
-            header.position.get()
-        })
+        encode_metadata_stub(tcx, ref_path, hashes);
     }
+}
+
+/// Generate the metadata stub manually, as that is a small file compared to full metadata.
+fn encode_metadata_stub(tcx: TyCtxt<'_>, ref_path: &Path, hashes: CrateHashes) {
+    let _prof_timer = tcx.prof.verbose_generic_activity("generate_crate_metadata_stub");
+
+    with_encode_metadata_header::<DefIndexDefIdEncoder>(tcx, ref_path, |ecx| {
+        let header: LazyValue<CrateHeader> = ecx.lazy(CrateHeader {
+            name: tcx.crate_name(LOCAL_CRATE),
+            triple: tcx.sess.opts.target_triple.clone(),
+            hashes,
+            is_proc_macro_crate: false,
+            is_stub: true,
+        });
+        header.position.get()
+    })
 }
 
 fn with_encode_metadata_header<'tcx, M: MetadataEncoder<'tcx>>(
