@@ -269,6 +269,11 @@ pub fn compiler_entrypoint(at_args: &[String], callbacks: &mut (dyn Callbacks + 
             return;
         }
 
+        if sess.opts.unstable_opts.check_span_reuse {
+            check_span_reuse(sess, &*codegen_backend.metadata_loader());
+            return;
+        }
+
         if sess.opts.unstable_opts.link_only {
             process_rlink(sess, compiler);
             return;
@@ -594,6 +599,23 @@ fn process_rlink(sess: &Session, compiler: &interface::Compiler) {
         compiler.codegen_backend.link(sess, compiled_modules, crate_info, metadata, &outputs);
     } else {
         dcx.emit_fatal(RlinkNotAFile {});
+    }
+}
+
+/// `-Zcheck-span-reuse`: prints `span-reuse: yes` or `span-reuse: no (<reason>)`.
+fn check_span_reuse(sess: &Session, metadata_loader: &dyn MetadataLoader) {
+    let Input::File(ref path) = sess.io.input else {
+        sess.dcx().fatal("`-Zcheck-span-reuse` takes a `.rdr-spans` file as input");
+    };
+    match rustc_metadata::span_deps::check_span_reuse(
+        &sess.target,
+        path,
+        metadata_loader,
+        sess.cfg_version,
+    ) {
+        Ok(None) => safe_println!("span-reuse: yes"),
+        Ok(Some(reason)) => safe_println!("span-reuse: no ({reason})"),
+        Err(err) => sess.dcx().fatal(err),
     }
 }
 

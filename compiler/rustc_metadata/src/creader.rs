@@ -8,10 +8,10 @@ use std::{cmp, env, iter};
 use rustc_ast::expand::allocator::{ALLOC_ERROR_HANDLER, AllocatorKind, global_fn_name};
 use rustc_ast::{self as ast, *};
 use rustc_crate_store::{CrateDepKind, CrateSource, ExternCrate, ExternCrateSource};
-use rustc_data_structures::fx::FxHashSet;
+use rustc_data_structures::fx::{FxHashSet, FxIndexSet};
 use rustc_data_structures::owned_slice::OwnedSlice;
 use rustc_data_structures::svh::Svh;
-use rustc_data_structures::sync::{self, FreezeReadGuard, FreezeWriteGuard};
+use rustc_data_structures::sync::{self, FreezeReadGuard, FreezeWriteGuard, Lock};
 use rustc_data_structures::unord::{UnordMap, UnordSet};
 use rustc_expand::base::SyntaxExtension;
 use rustc_hir::def_id::{CrateNum, LOCAL_CRATE, LocalDefId, StableCrateId};
@@ -84,6 +84,10 @@ pub struct CStore {
     /// Whether there was a failure in resolving crate,
     /// it's used to suppress some diagnostics that would otherwise too noisey.
     has_crate_resolve_with_fail: bool,
+
+    /// Items of dependencies whose span-sensitive data (MIR, macro definitions) this session read,
+    /// with `-Zpublic-api-hash`. Written out by `span_deps::write_span_deps`.
+    pub(crate) span_sensitive_reads: Lock<FxIndexSet<DefId>>,
 }
 
 pub enum LoadedMacro {
@@ -613,6 +617,7 @@ impl CStore {
             unused_externs: Vec::new(),
             used_extern_options: Default::default(),
             has_crate_resolve_with_fail: false,
+            span_sensitive_reads: Default::default(),
         }
     }
 

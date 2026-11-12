@@ -31,6 +31,8 @@ impl Linker {
         codegen_backend: &dyn CodegenBackend,
     ) -> Linker {
         let (ongoing_codegen, crate_info, metadata) = passes::start_codegen(codegen_backend, tcx);
+        // Codegen of all CGUs is done, so every dependency MIR this session uses has been read.
+        rustc_metadata::span_deps::write_span_deps(tcx);
 
         Linker {
             dep_graph: tcx.dep_graph.clone(),

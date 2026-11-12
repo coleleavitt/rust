@@ -519,7 +519,7 @@ fn crate_hashes<'tcx>(
     assert!(!root.header.is_proc_macro_crate);
     let graph = std::mem::take(&mut ecx.reachability_graph_builder).build_graph(hcx.hcx_mut());
     debug!("Hash graph {graph:?}");
-    let public_span_hash = public_span_hash(&graph, hcx, ecx.tcx);
+    let (public_span_hash, item_span_digests) = public_span_hash(&graph, hcx, ecx.tcx);
     let (hcx_mut, def_id_hashes) = hcx.hcx_with_def_id_hashes();
     let public_hashes = build_public_hashes(&graph, def_id_hashes, ecx.tcx, hcx_mut);
 
@@ -529,7 +529,7 @@ fn crate_hashes<'tcx>(
     debug!("crate_hashes: public_hashes roots hash = {:?}", public_hashes.hash);
     public_global_hash.stable_hash(hcx.hcx_mut(), &mut hasher);
     public_hashes.stable_hash(hcx.hcx_mut(), &mut hasher);
-    let rdr_hashes = public_hashes.value.encode(ecx, public_global_hash);
+    let rdr_hashes = public_hashes.value.encode(ecx, public_global_hash, &item_span_digests);
     let public_hash = Svh::new(hasher.finish());
     debug!("Hashed crate root: {root:#x?}");
     debug!("public api hash: {}", public_hash);
@@ -543,9 +543,9 @@ fn public_span_hash(
     graph: &ReachabilityGraph<'_>,
     hcx: &mut PublicApiHashingContext<'_, true>,
     tcx: TyCtxt<'_>,
-) -> Svh {
+) -> (Svh, Vec<(LocalDefId, Fingerprint)>) {
     let reachable = graph.reachable_set();
-    let mut items: Vec<(Fingerprint, Fingerprint)> = reachable
+    let item_digests: Vec<(LocalDefId, Fingerprint)> = reachable
         .iter_enumerated()
         .filter(|&(_, &reachable)| reachable)
         .filter_map(|(node_index, _)| match graph.nodes.get_index(node_index).unwrap().0 {
@@ -553,15 +553,16 @@ fn public_span_hash(
             _ => None,
         })
         .filter(|id| hcx.span_sensitive.contains(id))
-        .map(|id| {
-            let digest = hcx.span_digests.get(&id).copied().unwrap_or(Fingerprint::ZERO);
-            (tcx.def_path_hash(id.to_def_id()).0, digest)
-        })
+        .map(|id| (id, hcx.span_digests.get(&id).copied().unwrap_or(Fingerprint::ZERO)))
+        .collect();
+    let mut items: Vec<(Fingerprint, Fingerprint)> = item_digests
+        .iter()
+        .map(|&(id, digest)| (tcx.def_path_hash(id.to_def_id()).0, digest))
         .collect();
     items.sort_unstable();
     let mut hasher = StableHasher::new();
     items.stable_hash(&mut hcx.span_hcx, &mut hasher);
-    Svh::new(hasher.finish())
+    (Svh::new(hasher.finish()), item_digests)
 }
 
 impl HashableCrateRoot {
@@ -1055,7 +1056,12 @@ impl ItemPublicHashesBuilder {
         &self,
         ecx: &mut EncodeContext<'a, 'tcx>,
         public_global_hash: Fingerprint,
+        item_span_digests: &[(LocalDefId, Fingerprint)],
     ) -> ItemPublicHashes {
+        let mut span = TableBuilder::<RemappedLocalDefId, DefIndex, Option<Fingerprint>>::default();
+        for &(id, digest) in item_span_digests {
+            span.set_some(ecx.local_defs_remapping.map_local_def_id(id), digest);
+        }
         let mut local =
             TableBuilder::<RemappedLocalDefId, DefIndex, Option<Fingerprint>>::default();
         for &(id, fingerprint) in &self.local {
@@ -1069,6 +1075,7 @@ impl ItemPublicHashesBuilder {
         ItemPublicHashes {
             local: local.encode(&mut ecx.opaque),
             expn: expn.encode(&mut ecx.opaque),
+            span: span.encode(&mut ecx.opaque),
             public_global_hash,
         }
     }
@@ -1078,5 +1085,9 @@ impl ItemPublicHashesBuilder {
 pub(crate) struct ItemPublicHashes {
     pub(crate) local: LazyTable<RemappedLocalDefId, DefIndex, Option<Fingerprint>>,
     pub(crate) expn: LazyTable<RemappedLocalExpnIndex, ExpnIndex, Option<Fingerprint>>,
+    /// The span digest of each reachable span-sensitive item, see `public_span_hash`. A dependent
+    /// records the digests of the items it used, so that it only needs to be rebuilt when one of
+    /// those changes (`-Zcheck-span-reuse`).
+    pub(crate) span: LazyTable<RemappedLocalDefId, DefIndex, Option<Fingerprint>>,
     pub(crate) public_global_hash: Fingerprint,
 }

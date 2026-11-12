@@ -173,6 +173,19 @@ macro_rules! provide_one {
             let cstore = CStore::from_tcx($tcx);
             let $cdata = cstore.get_crate_data($def_id.krate);
 
+            // A dependent copies the positions in these into its own output, see
+            // `span_deps::write_span_deps`.
+            if matches!(
+                DepKind::$name,
+                DepKind::optimized_mir
+                    | DepKind::mir_for_ctfe
+                    | DepKind::promoted_mir
+                    | DepKind::mir_coroutine_witnesses
+            ) && $tcx.sess.opts.unstable_opts.public_api_hash
+            {
+                cstore.span_sensitive_reads.lock().extend(MaybeDefId::as_def_id(&$def_id));
+            }
+
             $compute
         }
     };
@@ -191,6 +204,23 @@ macro_rules! provide {
                 ..*providers
             };
         }
+    }
+}
+
+/// The `DefId` key of an extern query, if it has one.
+trait MaybeDefId {
+    fn as_def_id(&self) -> Option<DefId>;
+}
+
+impl MaybeDefId for DefId {
+    fn as_def_id(&self) -> Option<DefId> {
+        Some(*self)
+    }
+}
+
+impl MaybeDefId for ExpnId {
+    fn as_def_id(&self) -> Option<DefId> {
+        None
     }
 }
 
@@ -735,6 +765,9 @@ impl CStore {
         if cdata.root.is_proc_macro_crate() {
             LoadedMacro::ProcMacro(cdata.load_proc_macro(tcx, id.index))
         } else {
+            if tcx.sess.opts.unstable_opts.public_api_hash {
+                self.span_sensitive_reads.lock().insert(id);
+            }
             LoadedMacro::MacroDef {
                 def: cdata.get_macro(tcx, id.index),
                 ident: cdata.item_ident(tcx, id.index),

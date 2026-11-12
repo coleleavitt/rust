@@ -2478,6 +2478,9 @@ options! {
         "instrument control-flow architecture protection"),
     check_cfg_all_expected: bool = (false, parse_bool, [UNTRACKED],
         "show all expected values in check-cfg diagnostics (default: no)"),
+    check_span_reuse: bool = (false, parse_bool, [UNTRACKED],
+        "with `-Zpublic-api-hash`: read the `.rdr-spans` file given as input and print whether the \
+        crate that wrote it can be reused with the dependencies now on disk"),
     checksum_hash_algorithm: Option<SourceFileHashAlgorithm> = (None, parse_cargo_src_file_hash, [TRACKED],
         "hash algorithm of source files used to check freshness in cargo (`blake3` or `sha256`)"),
     codegen_backend: Option<String> = (None, parse_opt_string, [TRACKED],

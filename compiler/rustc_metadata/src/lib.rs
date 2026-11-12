@@ -10,7 +10,7 @@
 #![feature(trusted_len)]
 // tidy-alphabetical-end
 
-pub use rmeta::provide;
+pub use rmeta::{provide, span_deps};
 
 mod dependency_format;
 mod eii;

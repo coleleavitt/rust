@@ -64,6 +64,7 @@ mod decoder;
 mod def_path_hash_map;
 mod encoder;
 mod parameterized;
+pub mod span_deps;
 mod table;
 
 pub(crate) fn rustc_version(cfg_version: &'static str) -> String {

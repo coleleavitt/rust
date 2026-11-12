@@ -791,6 +791,15 @@ impl MetadataBlob {
         Svh::new(Fingerprint::from_le_bytes(bytes))
     }
 
+    /// The `DefIndex` of an item of this crate, looked up by its `DefPathHash` local hash.
+    pub(crate) fn local_def_path_hash_to_def_index(
+        &self,
+        root: &CrateRoot,
+        hash: Hash64,
+    ) -> Option<DefIndex> {
+        root.def_path_hash_map.decode(self).local_def_path_hash_to_def_index(&hash)
+    }
+
     pub(crate) fn get_public_span_hash(&self) -> Svh {
         let bytes: [u8; PUBLIC_SPAN_HASH_LEN] =
             self[PUBLIC_SPAN_HASH_OFFSET..][..PUBLIC_SPAN_HASH_LEN].try_into().unwrap();
@@ -1753,7 +1762,7 @@ impl CrateMetadata {
     }
 
     #[inline]
-    fn local_def_path_hash_to_def_index(&self, hash: Hash64) -> Option<DefIndex> {
+    pub(crate) fn local_def_path_hash_to_def_index(&self, hash: Hash64) -> Option<DefIndex> {
         self.def_path_hash_map.local_def_path_hash_to_def_index(&hash)
     }
 
