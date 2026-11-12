@@ -17,6 +17,7 @@ use rustc_data_structures::sync::Lock;
 use rustc_data_structures::unhash::UnhashMap;
 use rustc_expand::base::{SyntaxExtension, SyntaxExtensionKind};
 use rustc_expand::proc_macro::{AttrProcMacro, BangProcMacro, DeriveProcMacro};
+use rustc_hashes::Hash64;
 use rustc_hir::Safety;
 use rustc_hir::def::Res;
 use rustc_hir::def_id::{CRATE_DEF_INDEX, LOCAL_CRATE};
@@ -95,7 +96,7 @@ pub(crate) struct CrateMetadata {
 
     // --- Some data pre-decoded from the metadata blob, usually for performance ---
     /// Data about the top-level items in a crate, as well as various crate-level metadata.
-    root: CrateRoot,
+    pub(super) root: CrateRoot,
     /// Crate-level metadata that is not in the SVH.
     unhashed: CrateRootUnhashed,
     /// Trait impl data.
@@ -364,6 +365,10 @@ impl<T: ParameterizedOverTcx> LazyArray<T> {
 }
 
 impl<'a, 'tcx> MetadataDecodeContext<'a, 'tcx> {
+    fn hash_to_def_index(&self, cnum: CrateNum, hash: Hash64) -> DefIndex {
+        self.cdata.hash_to_def_index(cnum, hash, self.tcx)
+    }
+
     #[inline]
     fn map_encoded_cnum_to_current(&self, cnum: CrateNum) -> CrateNum {
         self.cdata.map_encoded_cnum_to_current(cnum)
@@ -465,7 +470,14 @@ impl<'a, 'tcx> SpanDecoder for MetadataDecodeContext<'a, 'tcx> {
     }
 
     fn decode_def_id(&mut self) -> DefId {
-        DefId { krate: Decodable::decode(self), index: Decodable::decode(self) }
+        let krate = CrateNum::decode(self);
+        let index = if self.cdata.root.public_api_hash_opt_enabled {
+            let hash = Hash64::decode(self);
+            self.hash_to_def_index(krate, hash)
+        } else {
+            DefIndex::decode(self)
+        };
+        DefId { krate, index }
     }
 
     fn decode_syntax_context(&mut self) -> SyntaxContext {
@@ -773,6 +785,12 @@ impl MetadataBlob {
         Svh::new(Fingerprint::from_le_bytes(bytes))
     }
 
+    pub(crate) fn get_public_hash(&self) -> Svh {
+        let bytes: [u8; PUBLIC_HASH_LEN] =
+            self[PUBLIC_HASH_OFFSET..][..PUBLIC_HASH_LEN].try_into().unwrap();
+        Svh::new(Fingerprint::from_le_bytes(bytes))
+    }
+
     pub(crate) fn list_crate_metadata(
         &self,
         out: &mut dyn io::Write,
@@ -787,20 +805,25 @@ impl MetadataBlob {
             "features".to_owned(),
             "items".to_owned(),
             "target_modifiers".to_owned(),
+            "public_hash".to_owned(),
         ];
         let ls_kinds = if ls_kinds.contains(&"all".to_owned()) { &all_ls_kinds } else { ls_kinds };
 
         for kind in ls_kinds {
             match &**kind {
+                "public_hash" => {
+                    writeln!(out, "Public hash: {}", self.get_public_hash())?;
+                }
                 "root" => {
                     writeln!(out, "Crate info:")?;
                     writeln!(out, "name {}{}", root.name(), extra_filename)?;
                     writeln!(
                         out,
-                        "hash {} stable_crate_id {:?}",
+                        "private hash {} stable_crate_id {:?}",
                         self.get_crate_hash(),
                         root.stable_crate_id
                     )?;
+                    writeln!(out, "public_hash {}", self.get_public_hash())?;
                     writeln!(out, "proc_macro {:?}", root.proc_macro_data.is_some())?;
                     writeln!(out, "triple {}", root.header.triple.tuple())?;
                     writeln!(out, "edition {}", root.edition)?;
@@ -1011,6 +1034,7 @@ impl CrateRoot {
         self.header.name
     }
 
+
     pub(crate) fn stable_crate_id(&self) -> StableCrateId {
         self.stable_crate_id
     }
@@ -1038,6 +1062,29 @@ impl CrateRoot {
 }
 
 impl CrateMetadata {
+    pub(super) fn hash_to_def_index(
+        &self,
+        cnum: CrateNum,
+        hash: Hash64,
+        tcx: TyCtxt<'_>,
+    ) -> DefIndex {
+        assert!(cnum != LOCAL_CRATE, "Deserialized LOCAL_CRATE from a crate metadata!");
+        if cnum == self.cnum {
+            self.local_def_path_hash_to_def_index(hash).unwrap()
+        } else {
+            CStore::from_tcx(tcx)
+                .get_crate_data(cnum)
+                .local_def_path_hash_to_def_index(hash)
+                .unwrap_or_else(||
+                    bug!(
+                        "Failed to find definition with hash {hash:x?} in crate {} while decoding DefId-s in {}",
+                        tcx.crate_name(cnum),
+                        tcx.crate_name(self.cnum)
+                    )
+                )
+        }
+    }
+
     fn missing(&self, descr: &str, id: DefIndex) -> ! {
         bug!("missing `{descr}` for {:?}", self.local_def_id(id))
     }
@@ -1564,7 +1611,7 @@ impl CrateMetadata {
 
         // Do a reverse lookup beforehand to avoid touching the crate_num
         // hash map in the loop below.
-        let key = match self.reverse_translate_def_id(trait_def_id) {
+        let key = match self.reverse_translate_def_id(tcx, trait_def_id) {
             Some(def_id) => def_id,
             None => return &[],
         };
@@ -1692,7 +1739,12 @@ impl CrateMetadata {
 
     #[inline]
     fn def_path_hash_to_def_index(&self, hash: DefPathHash) -> Option<DefIndex> {
-        self.def_path_hash_map.def_path_hash_to_def_index(&hash)
+        self.def_path_hash_map.local_def_path_hash_to_def_index(&hash.local_hash())
+    }
+
+    #[inline]
+    fn local_def_path_hash_to_def_index(&self, hash: Hash64) -> Option<DefIndex> {
+        self.def_path_hash_map.local_def_path_hash_to_def_index(&hash)
     }
 
     fn expn_hash_to_expn_id(&self, tcx: TyCtxt<'_>, index_guess: u32, hash: ExpnHash) -> ExpnId {
@@ -2007,13 +2059,13 @@ impl CrateMetadata {
         private_dep: bool,
         host_hash: Option<Svh>,
     ) -> CrateMetadata {
+        let alloc_decoding_state =
+            AllocDecodingState::new(root.interpret_alloc_index.decode(&blob).collect());
         let trait_impls = root
             .impls
             .decode(&blob)
             .map(|trait_impls| (trait_impls.trait_id, trait_impls.impls))
             .collect();
-        let alloc_decoding_state =
-            AllocDecodingState::new(root.interpret_alloc_index.decode(&blob).collect());
 
         // Pre-decode the DefPathHash->DefIndex table. This is a cheap operation
         // that does not copy any data. It just does some data verification.
@@ -2165,8 +2217,12 @@ impl CrateMetadata {
         self.root.header.name
     }
 
-    pub(crate) fn hash(&self) -> Svh {
+    pub(crate) fn private_hash(&self) -> Svh {
         self.blob.get_crate_hash()
+    }
+
+    pub(crate) fn public_hash(&self) -> Svh {
+        self.blob.get_public_hash()
     }
 
     pub(crate) fn has_async_drops(&self) -> bool {
@@ -2183,10 +2239,15 @@ impl CrateMetadata {
 
     // Translate a DefId from the current compilation environment to a DefId
     // for an external crate.
-    fn reverse_translate_def_id(&self, did: DefId) -> Option<RemappedRawDefId> {
+    fn reverse_translate_def_id(&self, tcx: TyCtxt<'_>, did: DefId) -> Option<RemappedRawDefId> {
         for (local, &global) in self.cnum_map.iter_enumerated() {
             if global == did.krate {
-                return Some(RemappedRawDefId::new_unchecked(local.as_u32(), did.index.as_u32()));
+                let index = if self.root.public_api_hash_opt_enabled {
+                    tcx.def_path_hash(did).local_hash().as_u64()
+                } else {
+                    did.index.as_u32().into()
+                };
+                return Some(RemappedRawDefId::new_unchecked(local.as_u32(), index));
             }
         }
 

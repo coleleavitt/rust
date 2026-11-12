@@ -1,12 +1,16 @@
 use std::hash::Hash;
 
+use rustc_data_structures::stable_hash::{StableHash, StableHasher};
 use rustc_data_structures::unord::UnordMap;
+use rustc_hir::def_id::DefId;
 use rustc_index::{Idx, IndexVec};
+use rustc_middle::ich::StableHashState;
 use rustc_middle::ty::{Binder, EarlyBinder, GenericArg, Region, Ty};
 use rustc_serialize::Encodable;
 use rustc_span::Symbol;
 
 use crate::rmeta::encoder::EncodeContext;
+use crate::rmeta::remapped_def_id::RemappedRawDefId;
 use crate::rmeta::{LazyArray, LazyValue, LocalDefId};
 
 pub(crate) trait ParameterizedOverTcx: 'static {
@@ -100,6 +104,7 @@ trivially_parameterized_over_tcx! {
     rustc_crate_store::ForeignModule,
     rustc_crate_store::LinkagePreference,
     rustc_crate_store::NativeLib,
+    rustc_data_structures::fingerprint::Fingerprint,
     rustc_hir::Constness,
     rustc_hir::CoroutineKind,
     rustc_hir::Defaultness,
@@ -179,12 +184,21 @@ parameterized_over_tcx! {
     // tidy-alphabetical-end
 }
 
+/// With `-Zpublic-api-hash`, the hashing state and the hasher a table value is fed into while it
+/// is encoded.
+pub(super) type ValueHasher<'h, 'tcx> =
+    Option<(&'h mut StableHashState<'tcx, true>, &'h mut StableHasher)>;
+
 /// Converts values from `TyCtxt` stored form into metadata table stored form
 pub(super) trait EncodeFrom<'tcx, T> {
     /// When a `T` is trivial to encode, it has a fixed size, no pointers inside, this can be
     /// just a no-op. For more complex types this usually creates a `LazyValue<T>` or `LazyArray<T>`
     /// encoding `value` with `encoder` in the process
-    fn encode_from<'a>(encoder: &mut EncodeContext<'a, 'tcx>, value: T) -> Self;
+    fn encode_from<'a>(
+        encoder: &mut EncodeContext<'a, 'tcx>,
+        value: T,
+        hasher: ValueHasher<'_, 'tcx>,
+    ) -> Self;
 }
 
 macro_rules! trivial_encode_from {
@@ -196,7 +210,11 @@ macro_rules! trivial_encode_from {
                 fn encode_from<'a>(
                     _encoder: &mut EncodeContext<'a, 'tcx>,
                     value: $ty,
+                    hasher: ValueHasher<'_, 'tcx>,
                 ) -> $ty {
+                    if let Some((hcx, hasher)) = hasher {
+                        value.stable_hash(hcx, hasher);
+                    }
                     value
                 }
             }
@@ -216,7 +234,11 @@ macro_rules! lazy_encode_from {
                 fn encode_from<'a>(
                     encoder: &mut EncodeContext<'a, 'tcx>,
                     value: B,
+                    hasher: ValueHasher<'_, 'tcx>,
                 ) -> LazyValue<$ty> {
+                    if let Some((hcx, hasher)) = hasher {
+                        value.borrow().stable_hash(hcx, hasher);
+                    }
                     encoder.lazy(value)
                 }
             }
@@ -224,12 +246,26 @@ macro_rules! lazy_encode_from {
     };
 }
 
+/// `DefKey`s are only stored in tables left out of the public API hash.
+impl<'tcx, B> EncodeFrom<'tcx, B> for LazyValue<rustc_hir::definitions::DefKey>
+where
+    B: std::borrow::Borrow<rustc_hir::definitions::DefKey>,
+{
+    fn encode_from<'a>(
+        encoder: &mut EncodeContext<'a, 'tcx>,
+        value: B,
+        hasher: ValueHasher<'_, 'tcx>,
+    ) -> LazyValue<rustc_hir::definitions::DefKey> {
+        assert!(hasher.is_none(), "`DefKey`s are not part of the public API hash");
+        encoder.lazy(value)
+    }
+}
+
 trivial_encode_from! {
     bool,
     u64,
     // tidy-alphabetical-start
     crate::rmeta::AttrFlags,
-    crate::rmeta::remapped_def_id::RemappedRawDefId,
     rustc_hir::Constness,
     rustc_hir::CoroutineKind,
     rustc_hir::Defaultness,
@@ -253,7 +289,6 @@ lazy_encode_from! {
     rustc_hir::def_id::DefId,
     rustc_hir::def_id::DefIdMap<rustc_middle::ty::EarlyBinder<'static, Ty<'static>>>,
     rustc_hir::def_id::DefIdMap<std::vec::Vec<rustc_hir::def_id::DefId>>,
-    rustc_hir::definitions::DefKey,
     rustc_index::IndexVec<rustc_abi::FieldIdx, rustc_span::Symbol>,
     rustc_index::IndexVec<rustc_middle::mir::Promoted, rustc_middle::mir::Body<'static>>,
     rustc_index::bit_set::DenseBitSet<u32>,
@@ -292,13 +327,17 @@ lazy_encode_from! {
 impl<'tcx, T, B> EncodeFrom<'tcx, Option<B>> for Option<LazyValue<T>>
 where
     T: ParameterizedOverTcx,
-    T::Value<'tcx>: for<'b> Encodable<EncodeContext<'b, 'tcx>>,
+    T::Value<'tcx>: for<'b> Encodable<EncodeContext<'b, 'tcx>> + StableHash,
     B: std::borrow::Borrow<T::Value<'tcx>>,
 {
     fn encode_from<'a>(
         encoder: &mut EncodeContext<'a, 'tcx>,
         value: Option<B>,
+        hasher: ValueHasher<'_, 'tcx>,
     ) -> Option<LazyValue<T>> {
+        if let Some((hcx, hasher)) = hasher {
+            value.as_ref().map(|v| v.borrow()).stable_hash(hcx, hasher);
+        }
         value.map(|v| encoder.lazy(v))
     }
 }
@@ -308,9 +347,32 @@ where
     T: ParameterizedOverTcx,
     I: IntoIterator<Item = B>,
     B: std::borrow::Borrow<T::Value<'tcx>>,
-    T::Value<'tcx>: for<'a> Encodable<EncodeContext<'a, 'tcx>>,
+    T::Value<'tcx>: for<'a> Encodable<EncodeContext<'a, 'tcx>> + StableHash,
 {
-    fn encode_from<'a>(encoder: &mut EncodeContext<'a, 'tcx>, values: I) -> Self {
-        encoder.lazy_array(values)
+    fn encode_from<'a>(
+        encoder: &mut EncodeContext<'a, 'tcx>,
+        values: I,
+        mut hasher: ValueHasher<'_, 'tcx>,
+    ) -> Self {
+        encoder.lazy_array(values.into_iter().inspect(|v| {
+            if let Some((hcx, hasher)) = &mut hasher {
+                v.borrow().stable_hash(*hcx, *hasher);
+            }
+        }))
+    }
+}
+
+/// A `DefId` in a table: an edge of the public API reachability graph, hashed by its
+/// `DefPathHash`.
+impl<'tcx> EncodeFrom<'tcx, DefId> for RemappedRawDefId {
+    fn encode_from<'a>(
+        encoder: &mut EncodeContext<'a, 'tcx>,
+        def_id: DefId,
+        hasher: ValueHasher<'_, 'tcx>,
+    ) -> RemappedRawDefId {
+        if let Some((hcx, hasher)) = hasher {
+            def_id.stable_hash(hcx, hasher);
+        }
+        encoder.raw_def_id(def_id)
     }
 }

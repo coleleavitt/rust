@@ -46,7 +46,7 @@ pub mod source_map;
 use source_map::{SourceMap, SourceMapInputs};
 
 pub use self::caching_source_map_view::CachingSourceMapView;
-use crate::def_id::DefPathHash;
+use crate::def_id::{DefPathHash, VisibilityDefId};
 use crate::fatal_error::FatalError;
 
 pub mod edition;
@@ -1374,7 +1374,7 @@ rustc_index::newtype_index! {
 
 /// This trait is used to allow encoder specific encodings of certain types.
 /// It is similar to rustc_type_ir's TyEncoder.
-pub trait SpanEncoder: Encoder {
+pub trait SpanEncoder: Encoder + Sized {
     /// Only needed if the encoder wants deterministic encoding for `HashMap` and `HashSet` with
     /// `CrateNum`, `DefId` or `LocalDefId` keys. Can be unimplemented otherwise
     fn def_path_hasher(&self) -> impl Fn(DefId) -> DefPathHash {
@@ -1408,6 +1408,10 @@ pub trait SpanEncoder: Encoder {
     {
         parent.encode(self);
         disambiguated_data.encode(self);
+    }
+
+    fn encode_visibility_def_id(&mut self, def_id: VisibilityDefId) {
+        def_id.0.encode(self);
     }
 }
 
@@ -1530,6 +1534,12 @@ impl<E: SpanEncoder> Encodable<E> for DefIndex {
 impl<E: SpanEncoder> Encodable<E> for DefId {
     fn encode(&self, s: &mut E) {
         s.encode_def_id(*self)
+    }
+}
+
+impl<E: SpanEncoder> Encodable<E> for VisibilityDefId {
+    fn encode(&self, s: &mut E) {
+        s.encode_visibility_def_id(*self)
     }
 }
 
