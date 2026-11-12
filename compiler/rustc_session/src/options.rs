@@ -394,7 +394,14 @@ top_level_options!(
         cli_forced_local_thinlto_off: bool [UNTRACKED],
 
         /// Remap source path prefixes in all output (messages, object files, debug, etc.).
-        remap_path_prefix: Vec<(PathBuf, PathBuf)> [TRACKED_NO_CRATE_HASH],
+        /// Dependency tracking uses `remap_path_prefix_for_dep_tracking` instead.
+        remap_path_prefix: Vec<(PathBuf, PathBuf)> [UNTRACKED],
+        /// `remap_path_prefix` with each `from` that is the working directory, or inside it, made
+        /// relative to the working directory (marked `true`). A checkout at another path that
+        /// remaps itself the same way (as cargo `trim-paths` does) then keeps its incremental
+        /// cache. What the remapping produces is tracked on its own: the remapped `working_dir`
+        /// below, and the source file names hashed by the query system (#132132).
+        remap_path_prefix_for_dep_tracking: Vec<(bool, PathBuf, PathBuf)> [TRACKED_NO_CRATE_HASH],
         /// Defines which scopes of paths should be remapped by `--remap-path-prefix`.
         remap_path_scope: RemapPathScopeComponents [TRACKED_NO_CRATE_HASH],
 

@@ -1501,6 +1501,7 @@ impl Default for Options {
             cli_forced_codegen_units: None,
             cli_forced_local_thinlto_off: false,
             remap_path_prefix: Vec::new(),
+            remap_path_prefix_for_dep_tracking: Vec::new(),
             remap_path_scope: RemapPathScopeComponents::all(),
             real_rust_source_base_dir: None,
             real_rustc_dev_source_base_dir: None,
@@ -2675,6 +2676,19 @@ fn parse_remap_path_prefix(
         .collect()
 }
 
+fn remap_path_prefix_for_dep_tracking(
+    remap_path_prefix: &[(PathBuf, PathBuf)],
+    cwd: &Path,
+) -> Vec<(bool, PathBuf, PathBuf)> {
+    remap_path_prefix
+        .iter()
+        .map(|(from, to)| match from.strip_prefix(cwd) {
+            Ok(rel) if from.is_absolute() => (true, rel.to_path_buf(), to.clone()),
+            _ => (false, from.clone(), to.clone()),
+        })
+        .collect()
+}
+
 // JUSTIFICATION: before wrapper fn is available
 #[allow(rustc::bad_opt_access)]
 pub fn build_session_options(early_dcx: &mut EarlyDiagCtxt, matches: &getopts::Matches) -> Options {
@@ -3007,18 +3021,19 @@ pub fn build_session_options(early_dcx: &mut EarlyDiagCtxt, matches: &getopts::M
 
     // Ideally we would use `SourceMap::working_dir` instead, but we don't have access to it
     // so we manually create the potentially-remapped working directory
+    let cwd = std::env::current_dir().unwrap_or_else(|e| {
+        early_dcx.early_fatal(format!("Current directory is invalid: {e}"));
+    });
     let working_dir = {
-        let working_dir = std::env::current_dir().unwrap_or_else(|e| {
-            early_dcx.early_fatal(format!("Current directory is invalid: {e}"));
-        });
-
         let file_mapping = file_path_mapping(
             remap_path_prefix.clone(),
             unstable_opts.remap_cwd_prefix.as_deref(),
             remap_path_scope,
         );
-        file_mapping.to_real_filename(&RealFileName::empty(), &working_dir)
+        file_mapping.to_real_filename(&RealFileName::empty(), &cwd)
     };
+    let remap_path_prefix_for_dep_tracking =
+        remap_path_prefix_for_dep_tracking(&remap_path_prefix, &cwd);
 
     let verbose = matches.opt_present("verbose") || unstable_opts.verbose_internals;
 
@@ -3059,6 +3074,7 @@ pub fn build_session_options(early_dcx: &mut EarlyDiagCtxt, matches: &getopts::M
         cli_forced_codegen_units: codegen_units,
         cli_forced_local_thinlto_off: disable_local_thinlto,
         remap_path_prefix,
+        remap_path_prefix_for_dep_tracking,
         remap_path_scope,
         real_rust_source_base_dir,
         real_rustc_dev_source_base_dir,
