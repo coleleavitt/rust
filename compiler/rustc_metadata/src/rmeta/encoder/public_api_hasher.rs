@@ -127,7 +127,6 @@
 //! needed for query calls — ensures those edges can be removed from the rmeta reachability graph.
 
 use core::iter::Iterator;
-use std::cell::RefCell;
 use std::fmt;
 
 use rustc_attr_ir::StrippedCfgItem;
@@ -140,7 +139,7 @@ use rustc_data_structures::graph::{DirectedGraph, Successors};
 use rustc_data_structures::indexmap::map::Entry;
 use rustc_data_structures::stable_hash::{StableHash, StableHashCtxt, StableHasher};
 use rustc_data_structures::svh::Svh;
-use rustc_data_structures::unord::UnordMap;
+use rustc_data_structures::unord::{UnordMap, UnordSet};
 use rustc_hir::def_id::DefIndex;
 use rustc_index::IndexVec;
 use rustc_macros::{LazyDecodable, MetadataEncodable, StableHash};
@@ -226,13 +225,50 @@ impl<'a, const ENABLED: bool> PublicApiHashState<'a> for PublicApiHashingContext
 }
 
 pub(crate) struct PublicApiHashingContext<'a, const ENABLED: bool> {
+    /// Hashes the public API: spans and expansions without their positions.
     pub(crate) hcx: StableHashState<'a, true>,
     def_id_hashes: ReachabilityGraphHashes,
+    /// Hashes the span-sensitive data of items (see `public_span_hash`) with absolute positions.
+    span_hcx: StableHashState<'a, true>,
+    span_digests: UnordMap<LocalDefId, Fingerprint>,
+    /// Items whose encoded data a dependent can copy into its own output together with its
+    /// positions: MIR bodies (inlining, monomorphization, const evaluation) and macro definitions.
+    span_sensitive: UnordSet<LocalDefId>,
 }
 
 impl<'a, const ENABLED: bool> PublicApiHashingContext<'a, ENABLED> {
-    pub(crate) fn new(hcx: StableHashState<'a, false>) -> Self {
-        Self { hcx: hcx.hash_spans_as_parentless(), def_id_hashes: Default::default() }
+    pub(crate) fn new(
+        hcx: StableHashState<'a, false>,
+        span_hcx: StableHashState<'a, false>,
+    ) -> Self {
+        Self {
+            hcx: hcx.hash_spans_as_parentless().without_span_positions(),
+            def_id_hashes: Default::default(),
+            span_hcx: span_hcx.hash_spans_as_parentless(),
+            span_digests: Default::default(),
+            span_sensitive: Default::default(),
+        }
+    }
+
+    /// Both hashing contexts, for values hashed for the public API and their span positions at
+    /// the same time.
+    pub(crate) fn hcx_and_span_hcx(
+        &mut self,
+    ) -> (&mut StableHashState<'a, true>, &mut StableHashState<'a, true>) {
+        (&mut self.hcx, &mut self.span_hcx)
+    }
+
+    pub(crate) fn add_span_digest(
+        &mut self,
+        item: LocalDefId,
+        digest: Fingerprint,
+        sensitive: bool,
+    ) {
+        let current = self.span_digests.entry(item).or_insert(Fingerprint::ZERO);
+        *current = current.combine_commutative(digest);
+        if sensitive {
+            self.span_sensitive.insert(item);
+        }
     }
 }
 
@@ -479,10 +515,11 @@ fn crate_hashes<'tcx>(
     ecx: &mut EncodeContext<'_, 'tcx>,
     hcx: &mut PublicApiHashingContext<'tcx, true>,
     root: &HashableCrateRoot,
-) -> (Svh, ItemPublicHashes) {
+) -> (Svh, Svh, ItemPublicHashes) {
     assert!(!root.header.is_proc_macro_crate);
     let graph = std::mem::take(&mut ecx.reachability_graph_builder).build_graph(hcx.hcx_mut());
     debug!("Hash graph {graph:?}");
+    let public_span_hash = public_span_hash(&graph, hcx, ecx.tcx);
     let (hcx_mut, def_id_hashes) = hcx.hcx_with_def_id_hashes();
     let public_hashes = build_public_hashes(&graph, def_id_hashes, ecx.tcx, hcx_mut);
 
@@ -496,7 +533,35 @@ fn crate_hashes<'tcx>(
     let public_hash = Svh::new(hasher.finish());
     debug!("Hashed crate root: {root:#x?}");
     debug!("public api hash: {}", public_hash);
-    (public_hash, rdr_hashes)
+    (public_hash, public_span_hash, rdr_hashes)
+}
+
+/// The hash of the absolute span positions a dependent can copy into its own output: the span
+/// digests of every reachable span-sensitive item, in `DefPathHash` order. The public API hash
+/// leaves positions out, so a dependent must be rebuilt when either hash changes.
+fn public_span_hash(
+    graph: &ReachabilityGraph<'_>,
+    hcx: &mut PublicApiHashingContext<'_, true>,
+    tcx: TyCtxt<'_>,
+) -> Svh {
+    let reachable = graph.reachable_set();
+    let mut items: Vec<(Fingerprint, Fingerprint)> = reachable
+        .iter_enumerated()
+        .filter(|&(_, &reachable)| reachable)
+        .filter_map(|(node_index, _)| match graph.nodes.get_index(node_index).unwrap().0 {
+            Node::DefId(id) => id.as_local(),
+            _ => None,
+        })
+        .filter(|id| hcx.span_sensitive.contains(id))
+        .map(|id| {
+            let digest = hcx.span_digests.get(&id).copied().unwrap_or(Fingerprint::ZERO);
+            (tcx.def_path_hash(id.to_def_id()).0, digest)
+        })
+        .collect();
+    items.sort_unstable();
+    let mut hasher = StableHasher::new();
+    items.stable_hash(&mut hcx.span_hcx, &mut hasher);
+    Svh::new(hasher.finish())
 }
 
 impl HashableCrateRoot {
@@ -505,8 +570,9 @@ impl HashableCrateRoot {
     pub(super) fn into_crate_root(self, ecx: &mut EncodeContext<'_, '_>) -> CrateRoot {
         let mut hcx = ecx.rdr_hcx.take();
         let rdr_hashes = hcx.as_mut().map(|hcx| {
-            let (public_hash, rdr_hashes) = crate_hashes(ecx, hcx, &self);
+            let (public_hash, public_span_hash, rdr_hashes) = crate_hashes(ecx, hcx, &self);
             ecx.public_hash = Some(public_hash);
+            ecx.public_span_hash = Some(public_span_hash);
             rdr_hashes
         });
         ecx.rdr_hcx = hcx;
@@ -771,15 +837,9 @@ impl ReachabilityGraphHashes {
                 }
             }
             Node::SyntaxContext(id) => self.syntax.get(id).copied(),
-            Node::Span(span) => tcx.with_stable_hashing_context(|hcx| {
-                let hcx = RefCell::new(hcx);
-                tcx.sess
-                    .source_map()
-                    .span_to_source(*span, |source, start, end| {
-                        Ok(stable_hash(&mut hcx.borrow_mut(), &source[start..end]))
-                    })
-                    .ok()
-            }),
+            // Spans are no longer graph nodes: positions go into `public_span_hash`, and the
+            // source text they cover only matters for diagnostics.
+            Node::Span(_) => None,
             Node::Ty(_) => None,
             Node::Predicate(_) => None,
             Node::AllocId(id) => Some(tcx.with_stable_hashing_context(|mut hcx| {
@@ -971,10 +1031,14 @@ fn build_public_hashes<'tcx>(
             Node::AllocId(_) => (),
         }
     }
-    for &node_index in &graph.roots {
-        let fingerprint = scc_fingerprints[sccs.scc(node_index)];
-        fingerprint.stable_hash(hcx, &mut hasher);
-    }
+    // Combined commutatively: nodes with equal identity hashes (possible now that spans hash
+    // without positions) have no stable order.
+    let roots = graph
+        .roots
+        .iter()
+        .map(|&node_index| scc_fingerprints[sccs.scc(node_index)])
+        .fold(Fingerprint::ZERO, Fingerprint::combine_commutative);
+    roots.stable_hash(hcx, &mut hasher);
     let roots_hash = hasher.finish::<Fingerprint>();
     debug!("build_public_hashes: roots fingerprint hash = {roots_hash:?}");
     Hashed { value: public_hashes, hash: Some(roots_hash) }

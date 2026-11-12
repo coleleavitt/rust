@@ -148,15 +148,17 @@ macro_rules! provide_one {
             let ($def_id, $other) = def_id_arg.into_args();
             assert!(!$def_id.is_local());
 
-            // External query providers call `public_api_hash` in order to register a dependency
-            // on the crate metadata. The exception is `public_api_hash` itself, which obviously
-            // doesn't need to do this (and can't, as it would cause a query cycle).
+            // External query providers call `extern_crate_full_hash` in order to register a
+            // dependency on the crate metadata. The exception is the hash queries themselves, which
+            // obviously don't need to do this (and can't, as it would cause a query cycle).
             //
-            // The `crate_hash` query must not depend on public_api_hash, since it might change when
-            // the `public_api_hash` does not change.
+            // Not `public_api_hash`: it leaves span positions out, and the results of these queries
+            // contain spans.
             use rustc_middle::dep_graph::DepKind;
             match DepKind::$name {
-                DepKind::public_api_hash | DepKind::crate_hash => (),
+                DepKind::public_api_hash
+                | DepKind::crate_hash
+                | DepKind::extern_crate_full_hash => (),
                 DepKind::exported_generic_symbols | DepKind::exported_non_generic_symbols => {
                     // FIXME should this be some kind of linking_hash? These should only be read
                     // when we are doing linking
@@ -164,6 +166,7 @@ macro_rules! provide_one {
                 }
                 _ => {
                     $tcx.ensure_ok().public_api_hash($def_id.krate);
+                    $tcx.ensure_ok().extern_crate_full_hash($def_id.krate);
                 }
             }
 
@@ -432,6 +435,7 @@ provide! { tcx, def_id, other, cdata,
         cdata.private_hash()
     }
     public_api_hash => { cdata.public_hash() }
+    extern_crate_full_hash => { cdata.private_hash() }
     crate_host_hash => { cdata.host_hash }
     crate_name => { cdata.root.header.name }
     num_extern_def_ids => { cdata.num_def_ids() }

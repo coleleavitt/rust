@@ -791,6 +791,12 @@ impl MetadataBlob {
         Svh::new(Fingerprint::from_le_bytes(bytes))
     }
 
+    pub(crate) fn get_public_span_hash(&self) -> Svh {
+        let bytes: [u8; PUBLIC_SPAN_HASH_LEN] =
+            self[PUBLIC_SPAN_HASH_OFFSET..][..PUBLIC_SPAN_HASH_LEN].try_into().unwrap();
+        Svh::new(Fingerprint::from_le_bytes(bytes))
+    }
+
     pub(crate) fn list_crate_metadata(
         &self,
         out: &mut dyn io::Write,
@@ -806,6 +812,7 @@ impl MetadataBlob {
             "items".to_owned(),
             "target_modifiers".to_owned(),
             "public_hash".to_owned(),
+            "public_span_hash".to_owned(),
         ];
         let ls_kinds = if ls_kinds.contains(&"all".to_owned()) { &all_ls_kinds } else { ls_kinds };
 
@@ -813,6 +820,9 @@ impl MetadataBlob {
             match &**kind {
                 "public_hash" => {
                     writeln!(out, "Public hash: {}", self.get_public_hash())?;
+                }
+                "public_span_hash" => {
+                    writeln!(out, "Public span hash: {}", self.get_public_span_hash())?;
                 }
                 "root" => {
                     writeln!(out, "Crate info:")?;
@@ -824,6 +834,7 @@ impl MetadataBlob {
                         root.stable_crate_id
                     )?;
                     writeln!(out, "public_hash {}", self.get_public_hash())?;
+                    writeln!(out, "public_span_hash {}", self.get_public_span_hash())?;
                     writeln!(out, "proc_macro {:?}", root.proc_macro_data.is_some())?;
                     writeln!(out, "triple {}", root.header.triple.tuple())?;
                     writeln!(out, "edition {}", root.edition)?;

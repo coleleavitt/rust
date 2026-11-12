@@ -60,12 +60,13 @@ pub trait Emitter {
     /// Currently only supported for the JSON format.
     fn emit_artifact_notification(&mut self, _path: &Path, _artifact_type: &str) {}
 
-    /// Like `emit_artifact_notification`, also carrying the artifact's `-Zpublic-api-hash` hash.
+    /// Like `emit_artifact_notification`, also carrying the artifact's `-Zpublic-api-hash` public
+    /// API hash and public span hash.
     fn emit_artifact_notification_with_public_api_hash(
         &mut self,
         path: &Path,
         artifact_type: &str,
-        _public_api_hash: Option<&str>,
+        _public_hashes: Option<(&str, &str)>,
     ) {
         self.emit_artifact_notification(path, artifact_type);
     }

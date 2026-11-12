@@ -184,10 +184,21 @@ parameterized_over_tcx! {
     // tidy-alphabetical-end
 }
 
-/// With `-Zpublic-api-hash`, the hashing state and the hasher a table value is fed into while it
-/// is encoded.
-pub(super) type ValueHasher<'h, 'tcx> =
-    Option<(&'h mut StableHashState<'tcx, true>, &'h mut StableHasher)>;
+/// With `-Zpublic-api-hash`, the hashers a table value is fed into while it is encoded: the
+/// public API hash, and for span-sensitive tables the item's span digest.
+pub(super) struct ValueHasher<'h, 'tcx> {
+    pub(super) api: (&'h mut StableHashState<'tcx, true>, &'h mut StableHasher),
+    pub(super) spans: Option<(&'h mut StableHashState<'tcx, true>, &'h mut StableHasher)>,
+}
+
+impl ValueHasher<'_, '_> {
+    fn hash<T: StableHash + ?Sized>(&mut self, value: &T) {
+        value.stable_hash(self.api.0, self.api.1);
+        if let Some((hcx, hasher)) = &mut self.spans {
+            value.stable_hash(*hcx, *hasher);
+        }
+    }
+}
 
 /// Converts values from `TyCtxt` stored form into metadata table stored form
 pub(super) trait EncodeFrom<'tcx, T> {
@@ -197,7 +208,7 @@ pub(super) trait EncodeFrom<'tcx, T> {
     fn encode_from<'a>(
         encoder: &mut EncodeContext<'a, 'tcx>,
         value: T,
-        hasher: ValueHasher<'_, 'tcx>,
+        hasher: Option<ValueHasher<'_, 'tcx>>,
     ) -> Self;
 }
 
@@ -210,10 +221,10 @@ macro_rules! trivial_encode_from {
                 fn encode_from<'a>(
                     _encoder: &mut EncodeContext<'a, 'tcx>,
                     value: $ty,
-                    hasher: ValueHasher<'_, 'tcx>,
+                    hasher: Option<ValueHasher<'_, 'tcx>>,
                 ) -> $ty {
-                    if let Some((hcx, hasher)) = hasher {
-                        value.stable_hash(hcx, hasher);
+                    if let Some(mut hasher) = hasher {
+                        hasher.hash(&value);
                     }
                     value
                 }
@@ -234,10 +245,10 @@ macro_rules! lazy_encode_from {
                 fn encode_from<'a>(
                     encoder: &mut EncodeContext<'a, 'tcx>,
                     value: B,
-                    hasher: ValueHasher<'_, 'tcx>,
+                    hasher: Option<ValueHasher<'_, 'tcx>>,
                 ) -> LazyValue<$ty> {
-                    if let Some((hcx, hasher)) = hasher {
-                        value.borrow().stable_hash(hcx, hasher);
+                    if let Some(mut hasher) = hasher {
+                        hasher.hash(value.borrow());
                     }
                     encoder.lazy(value)
                 }
@@ -254,7 +265,7 @@ where
     fn encode_from<'a>(
         encoder: &mut EncodeContext<'a, 'tcx>,
         value: B,
-        hasher: ValueHasher<'_, 'tcx>,
+        hasher: Option<ValueHasher<'_, 'tcx>>,
     ) -> LazyValue<rustc_hir::definitions::DefKey> {
         assert!(hasher.is_none(), "`DefKey`s are not part of the public API hash");
         encoder.lazy(value)
@@ -333,10 +344,10 @@ where
     fn encode_from<'a>(
         encoder: &mut EncodeContext<'a, 'tcx>,
         value: Option<B>,
-        hasher: ValueHasher<'_, 'tcx>,
+        hasher: Option<ValueHasher<'_, 'tcx>>,
     ) -> Option<LazyValue<T>> {
-        if let Some((hcx, hasher)) = hasher {
-            value.as_ref().map(|v| v.borrow()).stable_hash(hcx, hasher);
+        if let Some(mut hasher) = hasher {
+            hasher.hash(&value.as_ref().map(|v| v.borrow()));
         }
         value.map(|v| encoder.lazy(v))
     }
@@ -352,11 +363,11 @@ where
     fn encode_from<'a>(
         encoder: &mut EncodeContext<'a, 'tcx>,
         values: I,
-        mut hasher: ValueHasher<'_, 'tcx>,
+        mut hasher: Option<ValueHasher<'_, 'tcx>>,
     ) -> Self {
         encoder.lazy_array(values.into_iter().inspect(|v| {
-            if let Some((hcx, hasher)) = &mut hasher {
-                v.borrow().stable_hash(*hcx, *hasher);
+            if let Some(hasher) = &mut hasher {
+                hasher.hash(v.borrow());
             }
         }))
     }
@@ -368,10 +379,10 @@ impl<'tcx> EncodeFrom<'tcx, DefId> for RemappedRawDefId {
     fn encode_from<'a>(
         encoder: &mut EncodeContext<'a, 'tcx>,
         def_id: DefId,
-        hasher: ValueHasher<'_, 'tcx>,
+        hasher: Option<ValueHasher<'_, 'tcx>>,
     ) -> RemappedRawDefId {
-        if let Some((hcx, hasher)) = hasher {
-            def_id.stable_hash(hcx, hasher);
+        if let Some(mut hasher) = hasher {
+            hasher.hash(&def_id);
         }
         encoder.raw_def_id(def_id)
     }

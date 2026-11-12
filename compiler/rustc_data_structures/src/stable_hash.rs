@@ -34,6 +34,12 @@ pub trait StableHashCtxt {
     /// Assert that the provided `StableHashCtxt` is configured with the default
     /// `StableHashControls`. We should always have bailed out before getting to here with a
     fn assert_default_stable_hash_controls(&self, msg: &str);
+
+    /// Whether span positions (and therefore the expansion hashes, which include the call site
+    /// positions) are hashed. Only the `-Zpublic-api-hash` hashing context turns this off.
+    fn hash_span_positions(&self) -> bool {
+        true
+    }
 }
 
 /// Dummy impl of [`StableHashCtxt`], for code that can't provide a real context,

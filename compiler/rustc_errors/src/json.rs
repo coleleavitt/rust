@@ -117,9 +117,14 @@ impl Emitter for JsonEmitter {
         &mut self,
         path: &Path,
         artifact_type: &str,
-        public_api_hash: Option<&str>,
+        public_hashes: Option<(&str, &str)>,
     ) {
-        let data = ArtifactNotification { artifact: path, emit: artifact_type, public_api_hash };
+        let data = ArtifactNotification {
+            artifact: path,
+            emit: artifact_type,
+            public_api_hash: public_hashes.map(|(api, _)| api),
+            public_span_hash: public_hashes.map(|(_, span)| span),
+        };
         let result = self.emit(EmitTyped::Artifact(data));
         if let Err(e) = result {
             panic!("failed to print notification: {e:?}");
@@ -260,6 +265,10 @@ struct ArtifactNotification<'a> {
     /// recompiling dependents when it did not change.
     #[serde(skip_serializing_if = "Option::is_none")]
     public_api_hash: Option<&'a str>,
+    /// The hash of the span positions dependents can copy into their output; dependents must
+    /// also be rebuilt when it changes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    public_span_hash: Option<&'a str>,
 }
 
 #[derive(Serialize)]

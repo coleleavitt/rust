@@ -59,6 +59,7 @@ use self::public_api_hasher::{
 };
 use crate::diagnostics::{FailCreateFileEncoder, FailWriteFile};
 use crate::eii::EiiMapEncodedKeyValue;
+use crate::rmeta::parameterized::ValueHasher;
 use crate::rmeta::remapped_def_id::RemappedRawDefId;
 use crate::rmeta::*;
 
@@ -103,6 +104,8 @@ pub(super) struct EncodeContext<'a, 'tcx> {
     reachability_graph_builder: ReachabilityGraphBuilder<'tcx>,
     /// The public API hash computed by `encode_crate_root`.
     public_hash: Option<Svh>,
+    /// The span hash computed by `encode_crate_root`, see `public_api_hasher::public_span_hash`.
+    public_span_hash: Option<Svh>,
 }
 
 /// If the current crate is a proc-macro, returns early with `LazyArray::default()`.
@@ -231,7 +234,8 @@ impl<'a, 'tcx> SpanEncoder for EncodeContext<'a, 'tcx> {
     }
 
     fn encode_span(&mut self, span: Span) {
-        self.record_encoded_index(span);
+        // Spans are not reachability graph nodes: their syntax contexts become edges of the item
+        // being encoded, and their positions only count for `public_span_hash`.
         match self.span_shorthands.entry(span) {
             Entry::Occupied(o) => {
                 // If an offset is smaller than the absolute position, we encode with the offset.
@@ -260,9 +264,7 @@ impl<'a, 'tcx> SpanEncoder for EncodeContext<'a, 'tcx> {
                 let position = self.opaque.position();
                 v.insert(position);
                 // Data is encoded with a SpanTag prefix (see below).
-                self.with_record_mode(RecordMode::From(span.into()), |this| {
-                    span.data().encode(this)
-                });
+                span.data().encode(self);
             }
         }
     }
@@ -563,24 +565,35 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
         &mut self,
         i: LocalDefId,
         value: T,
-        hashed: bool,
+        kind: TableHashKind,
     ) -> E {
         if !self.hash_public_api {
             return E::encode_from(self, value, None);
         }
-        if !hashed {
+        if !kind.hashed {
             return self
                 .with_record_mode(RecordMode::None, |this| E::encode_from(this, value, None));
         }
         let mut hcx = self.rdr_hcx.take().expect("public api hashing context");
         let mut hasher = StableHasher::new();
-        let encoded = self.with_record_mode(RecordMode::From(i.into()), |this| {
-            E::encode_from(this, value, Some((hcx.hcx_mut(), &mut hasher)))
-        });
+        let mut span_hasher = StableHasher::new();
+        let encoded = {
+            let (api_hcx, span_hcx) = hcx.hcx_and_span_hcx();
+            let value_hasher = ValueHasher {
+                api: (api_hcx, &mut hasher),
+                spans: kind.span_positions.then_some((span_hcx, &mut span_hasher)),
+            };
+            self.with_record_mode(RecordMode::From(i.into()), |this| {
+                E::encode_from(this, value, Some(value_hasher))
+            })
+        };
         let value_hash: Fingerprint = hasher.finish();
         let mut entry_hasher = StableHasher::new();
         (i, value_hash).stable_hash(hcx.hcx_mut(), &mut entry_hasher);
         hcx.add_node_hash(&i.into(), entry_hasher.finish());
+        if kind.span_positions {
+            hcx.add_span_digest(i, span_hasher.finish(), kind.span_sensitive);
+        }
         self.rdr_hcx = Some(hcx);
         encoded
     }
@@ -2958,7 +2971,11 @@ pub fn encode_metadata(tcx: TyCtxt<'_>, path: &Path, ref_path: Option<&Path>) {
         tcx.untracked().local_crate_hash.set(hash).expect("local_crate_hash set twice");
 
         if let Some(ref_path) = ref_path {
-            encode_metadata_stub(tcx, ref_path, blob.get_public_hash());
+            encode_metadata_stub(
+                tcx,
+                ref_path,
+                (blob.get_public_hash(), blob.get_public_span_hash()),
+            );
         }
 
         return;
@@ -2981,7 +2998,7 @@ pub fn encode_metadata(tcx: TyCtxt<'_>, path: &Path, ref_path: Option<&Path>) {
     // information changes, and maybe reuse the work product.
     let hash_public_api = tcx.sess.opts.unstable_opts.public_api_hash
         && !tcx.crate_types().contains(&CrateType::ProcMacro);
-    let (public_hash, _) = tcx.dep_graph.with_task(
+    let (public_hashes, _) = tcx.dep_graph.with_task(
         dep_node,
         tcx,
         || {
@@ -3006,16 +3023,21 @@ pub fn encode_metadata(tcx: TyCtxt<'_>, path: &Path, ref_path: Option<&Path>) {
     );
 
     if let Some(ref_path) = ref_path {
-        encode_metadata_stub(tcx, ref_path, public_hash);
+        encode_metadata_stub(tcx, ref_path, public_hashes);
     }
 }
 
 /// Generate the metadata stub manually, as that is a small file compared to full metadata.
-fn encode_metadata_stub(tcx: TyCtxt<'_>, ref_path: &Path, public_hash: Svh) {
+fn encode_metadata_stub(
+    tcx: TyCtxt<'_>,
+    ref_path: &Path,
+    (public_hash, public_span_hash): (Svh, Svh),
+) {
     let _prof_timer = tcx.prof.verbose_generic_activity("generate_crate_metadata_stub");
 
     with_encode_metadata_header(tcx, ref_path, false, |ecx| {
         ecx.public_hash = Some(public_hash);
+        ecx.public_span_hash = Some(public_span_hash);
         let header: LazyValue<CrateHeader> = ecx.lazy(CrateHeader {
             name: tcx.crate_name(LOCAL_CRATE),
             triple: tcx.sess.opts.target_triple.clone(),
@@ -3026,14 +3048,14 @@ fn encode_metadata_stub(tcx: TyCtxt<'_>, ref_path: &Path, public_hash: Svh) {
     });
 }
 
-/// Writes the metadata file at `path` with `f` and returns the public API hash it put in the
-/// header.
+/// Writes the metadata file at `path` with `f` and returns the public API and span hashes it put
+/// in the header.
 fn with_encode_metadata_header<'tcx>(
     tcx: TyCtxt<'tcx>,
     path: &Path,
     hash_public_api: bool,
     f: impl FnOnce(&mut EncodeContext<'_, 'tcx>) -> (usize, usize),
-) -> Svh {
+) -> (Svh, Svh) {
     // By default the crate hash (SVH) is computed from the bytes of the encoded metadata,
     // Under `-Z metadata-crate-hash=no` the SVH comes from the legacy `crate_hash` query instead and
     // this hasher is never consulted, so we skip seeding it and feeding metadata bytes into it.
@@ -3081,7 +3103,8 @@ fn with_encode_metadata_header<'tcx>(
     // Same with crate_hash.
     encoder.emit_raw_bytes(&Fingerprint::ZERO.to_le_bytes());
 
-    // Same with the public API hash.
+    // Same with the public API hash and the public span hash.
+    encoder.emit_raw_bytes(&Fingerprint::ZERO.to_le_bytes());
     encoder.emit_raw_bytes(&Fingerprint::ZERO.to_le_bytes());
 
     let source_map_files = tcx.sess.source_map().files();
@@ -3108,11 +3131,16 @@ fn with_encode_metadata_header<'tcx>(
         local_defs_remapping: Default::default(),
         syntax_context_remapping: Default::default(),
         local_expn_id_remapping: Default::default(),
-        rdr_hcx: hash_public_api
-            .then(|| PublicApiHashingContext::new(StableHashState::new(tcx.sess, tcx.untracked()))),
+        rdr_hcx: hash_public_api.then(|| {
+            PublicApiHashingContext::new(
+                StableHashState::new(tcx.sess, tcx.untracked()),
+                StableHashState::new(tcx.sess, tcx.untracked()),
+            )
+        }),
         hash_public_api,
         reachability_graph_builder: Default::default(),
         public_hash: None,
+        public_span_hash: None,
     };
 
     // Encode the rustc version string in a predictable location.
@@ -3150,14 +3178,15 @@ fn with_encode_metadata_header<'tcx>(
     }
 
     let public_hash = ecx.public_hash.unwrap_or(hash);
-    if let Err(err) = encode_public_hash(file, public_hash) {
+    let public_span_hash = ecx.public_span_hash.unwrap_or(hash);
+    if let Err(err) = encode_public_hashes(file, public_hash, public_span_hash) {
         tcx.dcx().emit_fatal(FailWriteFile { path: ecx.opaque.path(), err });
     }
 
     if let Err(err) = file.seek(SeekFrom::Start(pos_before_seek)) {
         tcx.dcx().emit_fatal(FailWriteFile { path: ecx.opaque.path(), err });
     }
-    public_hash
+    (public_hash, public_span_hash)
 }
 
 fn encode_root_position(mut file: &File, pos: usize) -> Result<(), std::io::Error> {
@@ -3172,9 +3201,15 @@ fn encode_unhashed_position(mut file: &File, pos: usize) -> Result<(), std::io::
     Ok(())
 }
 
-fn encode_public_hash(mut file: &File, hash: Svh) -> Result<(), std::io::Error> {
+fn encode_public_hashes(
+    mut file: &File,
+    public_hash: Svh,
+    public_span_hash: Svh,
+) -> Result<(), std::io::Error> {
     file.seek(SeekFrom::Start(PUBLIC_HASH_OFFSET as u64))?;
-    file.write_all(&hash.as_fingerprint().to_le_bytes())?;
+    file.write_all(&public_hash.as_fingerprint().to_le_bytes())?;
+    file.seek(SeekFrom::Start(PUBLIC_SPAN_HASH_OFFSET as u64))?;
+    file.write_all(&public_span_hash.as_fingerprint().to_le_bytes())?;
     Ok(())
 }
 

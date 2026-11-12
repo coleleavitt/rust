@@ -14,7 +14,7 @@ use crate::diagnostics::{
     BinaryOutputToTty, FailedCopyToStdout, FailedCreateEncodedMetadata, FailedCreateFile,
     FailedCreateTempdir, FailedWriteError,
 };
-use crate::locator::rmeta_public_api_hash;
+use crate::locator::rmeta_public_hashes;
 use crate::{EncodedMetadata, encode_metadata};
 
 // FIXME(eddyb) maybe include the crate name in this?
@@ -100,15 +100,15 @@ pub fn encode_and_write_metadata(tcx: TyCtxt<'_>) -> Result<EncodedMetadata, Err
             }
         };
         if tcx.sess.opts.json_artifact_notifications {
-            let public_api_hash = if tcx.sess.opts.unstable_opts.public_api_hash {
-                rmeta_public_api_hash(&filename).map(|hash| hash.to_hex())
+            let hashes = if tcx.sess.opts.unstable_opts.public_api_hash {
+                rmeta_public_hashes(&filename).map(|(api, span)| (api.to_hex(), span.to_hex()))
             } else {
                 None
             };
             tcx.dcx().emit_artifact_notification_with_public_api_hash(
                 out_filename.as_path(),
                 "metadata",
-                public_api_hash.as_deref(),
+                hashes.as_ref().map(|(api, span)| (api.as_str(), span.as_str())),
             );
         }
         (filename, Some(metadata_tmpdir))

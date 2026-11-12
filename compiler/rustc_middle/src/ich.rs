@@ -30,6 +30,8 @@ pub struct StableHashState<'a, const HASH_SPANS_AS_PARENTLESS: bool = false> {
     caching_source_map: CachingSourceMap<'a>,
     stable_hash_controls: StableHashControls,
     source_span_cache: SourceSpanCache,
+    /// See `StableHashCtxt::hash_span_positions`.
+    span_positions: bool,
 }
 
 impl<'a> StableHashState<'a, false> {
@@ -40,6 +42,7 @@ impl<'a> StableHashState<'a, false> {
             caching_source_map,
             stable_hash_controls,
             source_span_cache,
+            span_positions,
         } = self;
         StableHashState {
             untracked,
@@ -47,7 +50,18 @@ impl<'a> StableHashState<'a, false> {
             caching_source_map,
             stable_hash_controls,
             source_span_cache,
+            span_positions,
         }
+    }
+}
+
+impl<'a> StableHashState<'a, true> {
+    /// Spans hash only their syntax context, and expansions are hashed without the positions of
+    /// their call and definition sites. Used for the `-Zpublic-api-hash` hash, which must not
+    /// change when code moves.
+    pub fn without_span_positions(mut self) -> Self {
+        self.span_positions = false;
+        self
     }
 }
 
@@ -62,6 +76,7 @@ impl<'a, const HASH_SPANS_AS_PARENTLESS: bool> StableHashState<'a, HASH_SPANS_AS
             caching_source_map: CachingSourceMap::Unused(sess.source_map()),
             stable_hash_controls: StableHashControls { hash_spans: hash_spans_initial },
             source_span_cache: SourceSpanCache::default(),
+            span_positions: true,
         }
     }
 
@@ -116,6 +131,10 @@ impl<'a, const HASH_SPANS_AS_PARENTLESS: bool> StableHashCtxt
 
         let span = Span::from_raw_span(raw_span);
         let mut span = span.data_untracked();
+        if !self.span_positions {
+            span.ctxt.stable_hash(self, hasher);
+            return;
+        }
         const TAG_VALID_SPAN: u8 = 0;
         const TAG_INVALID_SPAN: u8 = 1;
         const TAG_RELATIVE_SPAN: u8 = 2;
@@ -207,6 +226,11 @@ impl<'a, const HASH_SPANS_AS_PARENTLESS: bool> StableHashCtxt
             self.untracked.cstore.read().def_path_hash(def_id)
         }
         .0
+    }
+
+    #[inline]
+    fn hash_span_positions(&self) -> bool {
+        self.span_positions
     }
 
     /// Assert that the provided `StableHashCtxt` is configured with the default

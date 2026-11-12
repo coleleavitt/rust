@@ -2082,6 +2082,16 @@ rustc_queries! {
         separate_provide_extern
     }
 
+    /// The crate hash of a dependency, for the incremental dependency tracking of the queries its
+    /// metadata provides. Their results contain span positions, which the public API hash leaves
+    /// out, so they must be recomputed whenever anything in the dependency changes. The value must
+    /// not reach the output: the dependent is not rebuilt when only this hash changes.
+    query extern_crate_full_hash(_: CrateNum) -> Svh {
+        eval_always
+        desc { "looking up the full hash of a crate" }
+        separate_provide_extern
+    }
+
     /// Returns the public api hash of an extern DefId, panics for the local crate
     query extern_def_public_hash(def_id: DefId) -> Fingerprint {
         eval_always

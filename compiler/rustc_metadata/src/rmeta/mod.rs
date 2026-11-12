@@ -73,7 +73,7 @@ pub(crate) fn rustc_version(cfg_version: &'static str) -> String {
 /// Metadata encoding version.
 /// N.B., increment this if you change the format of metadata such that
 /// the rustc version can't be found to compare with `rustc_version()`.
-const METADATA_VERSION: u8 = 13;
+const METADATA_VERSION: u8 = 14;
 
 /// Metadata header which includes `METADATA_VERSION`.
 ///
@@ -85,8 +85,8 @@ pub const METADATA_HEADER: &[u8] = &[b'r', b'u', b's', b't', 0, 0, 0, METADATA_V
 
 /// Fixed-size fields encoded immediately after `METADATA_HEADER`, in order:
 /// `CrateRoot` position (u64), `CrateRootUnhashed` position (u64), crate hash
-/// (`Fingerprint`/SVH), public API hash (`Fingerprint`, equal to the crate hash without
-/// `-Zpublic-api-hash`), then the variable-length rustc version string.
+/// (`Fingerprint`/SVH), public API hash and public span hash (`Fingerprint`s, both equal to the
+/// crate hash without `-Zpublic-api-hash`), then the variable-length rustc version string.
 const ROOT_POS_OFFSET: usize = METADATA_HEADER.len();
 const ROOT_POS_LEN: usize = size_of::<u64>();
 const UNHASHED_POS_OFFSET: usize = ROOT_POS_OFFSET + ROOT_POS_LEN;
@@ -95,7 +95,9 @@ const CRATE_HASH_OFFSET: usize = UNHASHED_POS_OFFSET + UNHASHED_POS_LEN;
 const CRATE_HASH_LEN: usize = size_of::<Fingerprint>();
 const PUBLIC_HASH_OFFSET: usize = CRATE_HASH_OFFSET + CRATE_HASH_LEN;
 const PUBLIC_HASH_LEN: usize = size_of::<Fingerprint>();
-const VERSION_OFFSET: usize = PUBLIC_HASH_OFFSET + PUBLIC_HASH_LEN;
+const PUBLIC_SPAN_HASH_OFFSET: usize = PUBLIC_HASH_OFFSET + PUBLIC_HASH_LEN;
+const PUBLIC_SPAN_HASH_LEN: usize = size_of::<Fingerprint>();
+const VERSION_OFFSET: usize = PUBLIC_SPAN_HASH_OFFSET + PUBLIC_SPAN_HASH_LEN;
 
 /// A value of type T referred to by its absolute position
 /// in the metadata, and which can be decoded lazily.
@@ -634,7 +636,7 @@ macro_rules! define_tables {
                 where
                     $T1: EncodeFrom<'tcx, T>
                 {
-                    let encoded = self.encoder.encode_table_value::<$T1, T>(i, v, $H1::HASHED);
+                    let encoded = self.encoder.encode_table_value::<$T1, T>(i, v, $H1::KIND);
                     let idx = self.encoder.local_defs_remapping.map_local_def_id(i);
                     self.encoder.tables.$name1.set(idx, encoded);
                 }
@@ -646,7 +648,7 @@ macro_rules! define_tables {
                 where
                     $T2: EncodeFrom<'tcx, T>
                 {
-                    let encoded = self.encoder.encode_table_value::<$T2, T>(i, v, $H2::HASHED);
+                    let encoded = self.encoder.encode_table_value::<$T2, T>(i, v, $H2::KIND);
                     let idx = self.encoder.local_defs_remapping.map_local_def_id(i);
                     self.encoder.tables.$name2.set(idx, Some(encoded));
                 }
@@ -655,18 +657,45 @@ macro_rules! define_tables {
     }
 }
 
-/// Table marker: entries are part of the public API hash (`-Zpublic-api-hash`) and add edges to
-/// the reachability graph.
+/// How the entries of a table count for `-Zpublic-api-hash`.
+#[derive(Clone, Copy)]
+pub(crate) struct TableHashKind {
+    /// Part of the public API hash, with edges in the reachability graph.
+    pub(crate) hashed: bool,
+    /// Also hashed with absolute span positions into the item's span digest.
+    pub(crate) span_positions: bool,
+    /// A dependent can copy the entry into its own output (MIR, macro definitions), which makes
+    /// the item count for the crate's public span hash.
+    pub(crate) span_sensitive: bool,
+}
+
+/// Table marker: in the public API hash.
 struct RDRHashAll;
-/// Table marker: entries are left out of the public API hash and the reachability graph.
+/// Table marker: left out of the public API hash and the reachability graph.
 struct RDRHashNone;
+/// Table marker: in the public API hash; span positions go into the item's span digest.
+struct RDRHashSpans;
+/// Table marker: like `RDRHashSpans`, and the item counts for the public span hash.
+struct RDRHashSpanSensitive;
 
 impl RDRHashAll {
-    const HASHED: bool = true;
+    const KIND: TableHashKind =
+        TableHashKind { hashed: true, span_positions: false, span_sensitive: false };
 }
 
 impl RDRHashNone {
-    const HASHED: bool = false;
+    const KIND: TableHashKind =
+        TableHashKind { hashed: false, span_positions: false, span_sensitive: false };
+}
+
+impl RDRHashSpans {
+    const KIND: TableHashKind =
+        TableHashKind { hashed: true, span_positions: true, span_sensitive: false };
+}
+
+impl RDRHashSpanSensitive {
+    const KIND: TableHashKind =
+        TableHashKind { hashed: true, span_positions: true, span_sensitive: true };
 }
 
 /// Helper struct for writing values into [`TableBuilders`].
@@ -722,7 +751,7 @@ define_tables! {
     associated_item_or_field_def_ids: Table<RDRHashAll, LazyArray<LocalDefId>>,
     def_kind: Table<RDRHashAll, DefKind>,
     visibility: Table<RDRHashAll, LazyValue<ty::Visibility<LocalDefId>>>,
-    def_span: Table<RDRHashAll, LazyValue<Span>>,
+    def_span: Table<RDRHashSpans, LazyValue<Span>>,
     def_ident_span: Table<RDRHashAll, LazyValue<Span>>,
     lookup_stability: Table<RDRHashAll, LazyValue<Stability>>,
     lookup_const_stability: Table<RDRHashAll, LazyValue<ConstStability>>,
@@ -737,12 +766,12 @@ define_tables! {
     impl_trait_header: Table<RDRHashAll, LazyValue<ty::ImplTraitHeader<'static>>>,
     const_param_default: Table<RDRHashAll, LazyValue<ty::EarlyBinder<'static, rustc_middle::ty::Const<'static>>>>,
     object_lifetime_default: Table<RDRHashAll, LazyValue<ObjectLifetimeDefault>>,
-    optimized_mir: Table<RDRHashAll, LazyValue<mir::Body<'static>>>,
-    mir_for_ctfe: Table<RDRHashAll, LazyValue<mir::Body<'static>>>,
+    optimized_mir: Table<RDRHashSpanSensitive, LazyValue<mir::Body<'static>>>,
+    mir_for_ctfe: Table<RDRHashSpanSensitive, LazyValue<mir::Body<'static>>>,
     trivial_const: Table<RDRHashAll, LazyValue<(ConstValue, Ty<'static>)>>,
     closure_saved_names_of_captured_variables: Table<RDRHashAll, LazyValue<IndexVec<FieldIdx, Symbol>>>,
-    mir_coroutine_witnesses: Table<RDRHashAll, LazyValue<mir::CoroutineLayout<'static>>>,
-    promoted_mir: Table<RDRHashAll, LazyValue<IndexVec<mir::Promoted, mir::Body<'static>>>>,
+    mir_coroutine_witnesses: Table<RDRHashSpanSensitive, LazyValue<mir::CoroutineLayout<'static>>>,
+    promoted_mir: Table<RDRHashSpanSensitive, LazyValue<IndexVec<mir::Promoted, mir::Body<'static>>>>,
     thir_abstract_const: Table<RDRHashAll, LazyValue<ty::EarlyBinder<'static, ty::Const<'static>>>>,
     impl_parent: Table<RDRHashAll, RemappedRawDefId>,
     const_conditions: Table<RDRHashAll, LazyValue<ty::ConstConditions<'static>>>,
@@ -770,7 +799,7 @@ define_tables! {
     def_keys: Table<RDRHashNone, LazyValue<DefKey>>,
     variant_data: Table<RDRHashAll, LazyValue<VariantData>>,
     assoc_container: Table<RDRHashAll, LazyValue<ty::AssocContainer>>,
-    macro_definition: Table<RDRHashAll, LazyValue<ast::DelimArgs>>,
+    macro_definition: Table<RDRHashSpanSensitive, LazyValue<ast::DelimArgs>>,
     deduced_param_attrs: Table<RDRHashAll, LazyArray<DeducedParamAttrs>>,
     collect_return_position_impl_trait_in_trait_tys: Table<RDRHashAll, LazyValue<DefIdMap<ty::EarlyBinder<'static, Ty<'static>>>>>,
     doc_link_resolutions: Table<RDRHashAll, LazyValue<DocLinkResMap>>,

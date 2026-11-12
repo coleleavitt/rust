@@ -817,12 +817,12 @@ impl<'a> DiagCtxtHandle<'a> {
         &self,
         path: &Path,
         artifact_type: &str,
-        public_api_hash: Option<&str>,
+        public_hashes: Option<(&str, &str)>,
     ) {
         self.dcx.inner.borrow_mut().emitter.emit_artifact_notification_with_public_api_hash(
             path,
             artifact_type,
-            public_api_hash,
+            public_hashes,
         );
     }
 

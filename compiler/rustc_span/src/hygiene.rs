@@ -33,7 +33,7 @@ use std::{fmt, iter, mem};
 use rustc_data_structures::fingerprint::Fingerprint;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_data_structures::stable_hash::{
-    StableHash, StableHashCtxt, StableHasher, ToStableHashKey,
+    RawDefId, StableHash, StableHashCtxt, StableHasher, ToStableHashKey,
 };
 use rustc_data_structures::sync::Lock;
 use rustc_data_structures::unhash::UnhashMap;
@@ -527,6 +527,8 @@ pub(crate) struct HygieneData {
     /// The keys of this map are always computed with `ExpnData.disambiguator`
     /// set to 0.
     expn_data_disambiguators: UnhashMap<Hash64, u32>,
+    /// Cache of `positionless_expn_hash`.
+    positionless_expn_hashes: FxHashMap<ExpnId, Fingerprint>,
 }
 
 impl HygieneData {
@@ -554,6 +556,7 @@ impl HygieneData {
             expn_data_disambiguators: UnhashMap::default(),
             first_non_det_syntax_context: None,
             first_non_det_local_expn_id: None,
+            positionless_expn_hashes: FxHashMap::default(),
         }
     }
 
@@ -1716,6 +1719,16 @@ impl SyntaxContext {
                 (data.expn_hash(expn_id).0, transparency)
             };
 
+            if !hcx.hash_span_positions() {
+                let (expn_id, transparency) = match data {
+                    Some(data) => data.outer_mark(self),
+                    None => HygieneData::with(|data| data.outer_mark(self)),
+                };
+                positionless_expn_hash(expn_id, hcx).stable_hash(hcx, hasher);
+                transparency.stable_hash(hcx, hasher);
+                return;
+            }
+
             let (hash, transparency) = match data {
                 Some(data) => get_hashing_data(data),
                 None => HygieneData::with(|data| get_hashing_data(data)),
@@ -1742,6 +1755,10 @@ impl ExpnId {
         hasher: &mut StableHasher,
     ) {
         hcx.assert_default_stable_hash_controls("ExpnId");
+        if !hcx.hash_span_positions() {
+            positionless_expn_hash(self, hcx).stable_hash(hcx, hasher);
+            return;
+        }
         let hash = if self == ExpnId::root() {
             // Avoid fetching TLS storage for a trivial often-used value.
             Fingerprint::ZERO
@@ -1756,6 +1773,30 @@ impl ExpnId {
 
         hash.stable_hash(hcx, hasher);
     }
+}
+
+/// The hash of an expansion's data with span positions left out, for the `-Zpublic-api-hash`
+/// hash. `ExpnHash` cannot be used there: it includes the call site positions, so inserting a line
+/// above a macro call would change it.
+fn positionless_expn_hash(expn_id: ExpnId, hcx: &mut impl StableHashCtxt) -> Fingerprint {
+    if expn_id == ExpnId::root() {
+        return Fingerprint::ZERO;
+    }
+    let (cached, expn_data) =
+        HygieneData::with(|data| match data.positionless_expn_hashes.get(&expn_id) {
+            Some(&hash) => (Some(hash), None),
+            None => (None, Some(data.expn_data(expn_id).clone())),
+        });
+    if let Some(hash) = cached {
+        return hash;
+    }
+    let mut hasher = StableHasher::new();
+    // The crate root's `DefPathHash` stands for the crate the expansion belongs to.
+    hcx.def_path_hash(RawDefId(expn_id.krate.as_u32(), 0)).stable_hash(hcx, &mut hasher);
+    expn_data.unwrap().stable_hash(hcx, &mut hasher);
+    let hash: Fingerprint = hasher.finish();
+    HygieneData::with(|data| data.positionless_expn_hashes.insert(expn_id, hash));
+    hash
 }
 
 impl StableHash for ExpnId {
