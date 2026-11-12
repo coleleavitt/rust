@@ -202,6 +202,27 @@ fn test_remap_cwd_prefix_not_in_remap_path_prefix() {
     );
 }
 
+// A `--remap-path-prefix` FROM at or below the working directory is tracked relative to it, so
+// checkouts at different paths that remap themselves the same way share one incremental cache
+// (#132132). Other FROM paths are tracked as given.
+#[test]
+fn test_remap_path_prefix_tracked_relative_to_cwd() {
+    let cwd = std::env::current_dir().unwrap();
+    let in_cwd: &'static str = format!("--remap-path-prefix={}=.", cwd.display()).leak();
+    let below_cwd: &'static str =
+        format!("--remap-path-prefix={}=sub", cwd.join("sub").display()).leak();
+    sess_and_cfg(&[in_cwd, below_cwd, "--remap-path-prefix=/elsewhere=x"], |sess, _cfg| {
+        assert_eq!(
+            sess.opts.remap_path_prefix_for_dep_tracking,
+            vec![
+                (true, PathBuf::new(), PathBuf::from(".")),
+                (true, PathBuf::from("sub"), PathBuf::from("sub")),
+                (false, PathBuf::from("/elsewhere"), PathBuf::from("x")),
+            ],
+        );
+    });
+}
+
 #[test]
 fn test_output_types_tracking_hash_different_paths() {
     let mut v1 = Options::default();
@@ -693,7 +714,10 @@ fn test_top_level_options_tracked_no_crate() {
         real_rust_source_base_dir,
         Some("/home/bors/rust/.rustup/toolchains/nightly/lib/rustlib/src/rust".into())
     );
-    tracked!(remap_path_prefix, vec![("/home/bors/rust".into(), "src".into())]);
+    tracked!(
+        remap_path_prefix_for_dep_tracking,
+        vec![(false, "/home/bors/rust".into(), "src".into())]
+    );
     // tidy-alphabetical-end
 }
 

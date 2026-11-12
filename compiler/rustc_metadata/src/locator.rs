@@ -952,6 +952,12 @@ fn get_rmeta_metadata_section<'a, 'p>(filename: &'p Path) -> Result<OwnedSlice, 
     Ok(slice_owned(mmap, Deref::deref))
 }
 
+/// Reads the `-Zpublic-api-hash` hash from the header of an `.rmeta` file.
+pub(crate) fn rmeta_public_api_hash(filename: &Path) -> Option<Svh> {
+    let blob = MetadataBlob::new(get_rmeta_metadata_section(filename).ok()?).ok()?;
+    Some(blob.get_public_hash())
+}
+
 /// A diagnostic function for dumping crate metadata to an output stream.
 pub fn list_file_metadata(
     target: &Target,

@@ -110,7 +110,16 @@ impl Emitter for JsonEmitter {
     }
 
     fn emit_artifact_notification(&mut self, path: &Path, artifact_type: &str) {
-        let data = ArtifactNotification { artifact: path, emit: artifact_type };
+        self.emit_artifact_notification_with_public_api_hash(path, artifact_type, None);
+    }
+
+    fn emit_artifact_notification_with_public_api_hash(
+        &mut self,
+        path: &Path,
+        artifact_type: &str,
+        public_api_hash: Option<&str>,
+    ) {
+        let data = ArtifactNotification { artifact: path, emit: artifact_type, public_api_hash };
         let result = self.emit(EmitTyped::Artifact(data));
         if let Err(e) = result {
             panic!("failed to print notification: {e:?}");
@@ -247,6 +256,10 @@ struct ArtifactNotification<'a> {
     artifact: &'a Path,
     /// What kind of artifact we're emitting.
     emit: &'a str,
+    /// The `-Zpublic-api-hash` hash of a metadata artifact, so a build system can skip
+    /// recompiling dependents when it did not change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    public_api_hash: Option<&'a str>,
 }
 
 #[derive(Serialize)]
