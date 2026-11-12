@@ -518,7 +518,7 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
     fn encode_def_id_unrecorded(&mut self, def_id: DefId) {
         if self.hash_public_api {
             def_id.krate.encode(self);
-            self.emit_u64(self.tcx.def_path_hash(def_id).local_hash().as_u64());
+            self.tcx.def_path_hash(def_id).local_hash().encode(self);
         } else {
             let def_id = self.local_defs_remapping.map_def_id(def_id);
             def_id.krate.encode(self);
