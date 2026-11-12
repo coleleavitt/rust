@@ -9,7 +9,11 @@ use run_make_support::{rustc, serde_json};
 
 fn notifications(public_api_hash: bool) -> Vec<serde_json::Value> {
     let mut cmd = rustc();
-    cmd.input("dep.rs").crate_type("lib").emit("metadata,link").arg("--json=artifacts").arg("--error-format=json");
+    cmd.input("dep.rs")
+        .crate_type("lib")
+        .emit("metadata,link")
+        .arg("--json=artifacts")
+        .arg("--error-format=json");
     if public_api_hash {
         cmd.arg("-Zpublic-api-hash");
     }
