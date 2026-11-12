@@ -844,7 +844,7 @@ impl ReachabilityGraphHashes {
             Node::Predicate(_) => unimplemented!(),
             Node::AllocId(_) => unimplemented!(),
         };
-        *current_hash = hash.combine_commutative(hash);
+        *current_hash = current_hash.combine_commutative(hash);
     }
 
     fn get_node(&self, node: &Node<'_>, tcx: TyCtxt<'_>) -> Option<Fingerprint> {
