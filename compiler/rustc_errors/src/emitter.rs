@@ -58,6 +58,16 @@ pub trait Emitter {
     /// Currently only supported for the JSON format.
     fn emit_artifact_notification(&mut self, _path: &Path, _artifact_type: &str) {}
 
+    /// Like `emit_artifact_notification`, also carrying the artifact's `-Zpublic-api-hash` hash.
+    fn emit_artifact_notification_with_public_api_hash(
+        &mut self,
+        path: &Path,
+        artifact_type: &str,
+        _public_api_hash: Option<&str>,
+    ) {
+        self.emit_artifact_notification(path, artifact_type);
+    }
+
     /// Emit a timestamp with start/end of a timing section.
     /// Currently only supported for the JSON format.
     fn emit_timing_section(&mut self, _record: TimingRecord, _event: TimingEvent) {}
