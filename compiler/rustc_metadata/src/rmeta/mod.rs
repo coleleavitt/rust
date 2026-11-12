@@ -31,8 +31,8 @@ use rustc_hir::definitions::DefKey;
 use rustc_index::bit_set::DenseBitSet;
 use rustc_index::{Idx, IndexVec};
 use rustc_macros::{
-    BlobDecodable, Decodable, Encodable, LazyDecodable, MetadataEncodable, StableHash,
-    TyDecodable, TyEncodable,
+    BlobDecodable, Decodable, Encodable, LazyDecodable, MetadataEncodable, StableHash, TyDecodable,
+    TyEncodable,
 };
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrs;
 use rustc_middle::middle::debugger_visualizer::DebuggerVisualizerFile;

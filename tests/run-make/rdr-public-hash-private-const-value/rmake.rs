@@ -16,5 +16,8 @@ fn main() {
     let before = public_hash();
     rfs::write("private.rs", "pub(crate) const V: u32 = 2;\n");
     let after = public_hash();
-    assert_ne!(before, after, "public hash did not change when the value of a public const changed");
+    assert_ne!(
+        before, after,
+        "public hash did not change when the value of a public const changed"
+    );
 }

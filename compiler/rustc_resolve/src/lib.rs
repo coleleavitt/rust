@@ -53,9 +53,7 @@ use rustc_expand::base::{DeriveResolution, SyntaxExtension, SyntaxExtensionKind}
 use rustc_feature::{BUILTIN_ATTRIBUTES, Features};
 use rustc_hir::def::Namespace::{self, *};
 use rustc_hir::def::{self, CtorOf, DefKind, MacroKinds, NonMacroAttrKind, PerNS};
-use rustc_hir::def_id::{
-    CRATE_DEF_ID, CrateNum, DefId, LOCAL_CRATE, LocalDefId, LocalDefIdMap,
-};
+use rustc_hir::def_id::{CRATE_DEF_ID, CrateNum, DefId, LOCAL_CRATE, LocalDefId, LocalDefIdMap};
 use rustc_hir::definitions::{PerParentDisambiguatorState, PerParentDisambiguatorsMap};
 use rustc_hir::{PrimTy, TraitCandidate};
 use rustc_index::bit_set::DenseBitSet;

@@ -5,8 +5,7 @@ use rustc_attr_ir::lang_items::LangItem;
 use rustc_attr_ir::target::AstTarget;
 use rustc_attr_ir::{
     BorrowckGraphvizFormatKind, CguFields, CguKind, RDRFields, RustcAssertVarianceKind,
-    RustcCleanAttribute,
-    RustcCleanQueries, RustcMirKind,
+    RustcCleanAttribute, RustcCleanQueries, RustcMirKind,
 };
 use rustc_data_structures::fx::FxHashMap;
 use rustc_feature::AttributeStability;

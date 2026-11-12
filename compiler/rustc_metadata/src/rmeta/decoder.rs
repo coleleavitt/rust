@@ -819,7 +819,7 @@ impl MetadataBlob {
                     writeln!(out, "name {}{}", root.name(), extra_filename)?;
                     writeln!(
                         out,
-                        "private hash {} stable_crate_id {:?}",
+                        "hash {} stable_crate_id {:?}",
                         self.get_crate_hash(),
                         root.stable_crate_id
                     )?;
@@ -1033,7 +1033,6 @@ impl CrateRoot {
     pub(crate) fn name(&self) -> Symbol {
         self.header.name
     }
-
 
     pub(crate) fn stable_crate_id(&self) -> StableCrateId {
         self.stable_crate_id

@@ -71,7 +71,7 @@
 //! public-api hashing is enabled, the `DefIndex` part is instead encoded as the definition's stable
 //! `DefPathHash`, which only depends on the def path and not on allocation order. This is what makes
 //! it possible to keep `def_path_hash_map` out of the public hash, and is also why trait impls are
-//! stored keyed by `DefPathHash` (see `EncodedTraitImpls`) rather than by `DefIndex`.
+//! stored keyed by `DefPathHash` (the `trait_id` of `TraitImpls`) rather than by `DefIndex`.
 //!
 //! ## Converting per-`DefId` tables instead of whole-crate queries
 //!
@@ -130,6 +130,8 @@ use core::iter::Iterator;
 use std::cell::RefCell;
 use std::fmt;
 
+use rustc_attr_ir::StrippedCfgItem;
+use rustc_attr_ir::lang_items::LangItem;
 use rustc_crate_store::{ForeignModule, LinkagePreference, NativeLib};
 use rustc_data_structures::fingerprint::Fingerprint;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
@@ -139,8 +141,6 @@ use rustc_data_structures::indexmap::map::Entry;
 use rustc_data_structures::stable_hash::{StableHash, StableHashCtxt, StableHasher};
 use rustc_data_structures::svh::Svh;
 use rustc_data_structures::unord::UnordMap;
-use rustc_attr_ir::StrippedCfgItem;
-use rustc_attr_ir::lang_items::LangItem;
 use rustc_hir::def_id::DefIndex;
 use rustc_index::IndexVec;
 use rustc_macros::{LazyDecodable, MetadataEncodable, StableHash};
@@ -992,7 +992,8 @@ impl ItemPublicHashesBuilder {
         ecx: &mut EncodeContext<'a, 'tcx>,
         public_global_hash: Fingerprint,
     ) -> ItemPublicHashes {
-        let mut local = TableBuilder::<RemappedLocalDefId, DefIndex, Option<Fingerprint>>::default();
+        let mut local =
+            TableBuilder::<RemappedLocalDefId, DefIndex, Option<Fingerprint>>::default();
         for &(id, fingerprint) in &self.local {
             local.set_some(ecx.local_defs_remapping.map_local_def_id(id), fingerprint);
         }

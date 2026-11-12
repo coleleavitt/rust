@@ -1,7 +1,6 @@
 use rustc_data_structures::fingerprint::Fingerprint;
 use rustc_hir::def::CtorOf;
 use rustc_index::Idx;
-
 use rustc_serialize::opaque::FileEncoder;
 
 use crate::rmeta::decoder::MetaBlob;
@@ -488,11 +487,7 @@ pub(super) struct TableBuilder<IdxEncode: Idx, IdxDecode: Idx, T: FixedSizeEncod
 
 impl<Ie: Idx, Id: Idx, T: FixedSizeEncoding> Default for TableBuilder<Ie, Id, T> {
     fn default() -> Self {
-        TableBuilder {
-            width: 0,
-            blocks: Default::default(),
-            _marker: PhantomData,
-        }
+        TableBuilder { width: 0, blocks: Default::default(), _marker: PhantomData }
     }
 }
 

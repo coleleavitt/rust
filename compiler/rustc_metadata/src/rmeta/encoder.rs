@@ -53,7 +53,7 @@ use tracing::{debug, instrument, trace};
 use twox_hash::XxHash3_128;
 
 use self::public_api_hasher::{
-    GraphHashed, HashableCrateHeader, HashableCrateRoot, Hashed, NoneIfHashed, Node,
+    GraphHashed, HashableCrateHeader, HashableCrateRoot, Hashed, Node, NoneIfHashed,
     PublicApiHashState, PublicApiHasher, PublicApiHashingContext, ReachabilityGraphBuilder,
     RecordMode, Unhashed,
 };
@@ -569,9 +569,8 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
             return E::encode_from(self, value, None);
         }
         if !hashed {
-            return self.with_record_mode(RecordMode::None, |this| {
-                E::encode_from(this, value, None)
-            });
+            return self
+                .with_record_mode(RecordMode::None, |this| E::encode_from(this, value, None));
         }
         let mut hcx = self.rdr_hcx.take().expect("public api hashing context");
         let mut hasher = StableHasher::new();
@@ -597,7 +596,11 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
 
     /// Encodes a crate-level array; with `-Zpublic-api-hash` its stable hash goes into the
     /// crate's global public hash. `map` turns the hashed values into the encoded ones.
-    fn hashed_lazy_array<T, I, H, B>(&mut self, values: I, map: impl Fn(H) -> B) -> Hashed<LazyArray<T>>
+    fn hashed_lazy_array<T, I, H, B>(
+        &mut self,
+        values: I,
+        map: impl Fn(H) -> B,
+    ) -> Hashed<LazyArray<T>>
     where
         T: ParameterizedOverTcx,
         I: IntoIterator<Item = H>,
@@ -1957,7 +1960,9 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
         }
     }
 
-    fn encode_externally_implementable_items(&mut self) -> Hashed<LazyArray<EiiMapEncodedKeyValue>> {
+    fn encode_externally_implementable_items(
+        &mut self,
+    ) -> Hashed<LazyArray<EiiMapEncodedKeyValue>> {
         empty_proc_macro!(self);
         let externally_implementable_items = self.tcx.externally_implementable_items(LOCAL_CRATE);
 
@@ -2072,12 +2077,15 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
                 .map_or_default(|v| &v[..])
                 .iter()
                 .filter(|ambig| {
-                    is_public_mod_child(remove_private_children, effective_visibilities, &ambig.main)
-                        && is_public_mod_child(
-                            remove_private_children,
-                            effective_visibilities,
-                            &ambig.second,
-                        )
+                    is_public_mod_child(
+                        remove_private_children,
+                        effective_visibilities,
+                        &ambig.main,
+                    ) && is_public_mod_child(
+                        remove_private_children,
+                        effective_visibilities,
+                        &ambig.second,
+                    )
                 });
             self.table_writer().ambig_module_children(local_def_id, ambig_module_children);
         }
@@ -2301,8 +2309,8 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
             &Rc::clone(&self.hygiene_ctxt),
             &mut (&mut *self, &mut syntax_contexts, &mut expn_data_table, &mut expn_hash_table),
             |(this, syntax_contexts, _, _), ctxt, ctxt_data| {
-                let lazy =
-                    this.with_record_mode(RecordMode::From(ctxt.into()), |this| this.lazy(ctxt_data));
+                let lazy = this
+                    .with_record_mode(RecordMode::From(ctxt.into()), |this| this.lazy(ctxt_data));
                 this.add_rdr_node_hash(ctxt.into(), ctxt_data);
                 let ctxt = this.syntax_context_remapping.map_id(ctxt);
                 syntax_contexts.set_some(ctxt, lazy);
@@ -2727,7 +2735,9 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
         ))
     }
 
-    fn encode_stable_order_of_exportable_impls(&mut self) -> Hashed<LazyArray<(LocalDefId, usize)>> {
+    fn encode_stable_order_of_exportable_impls(
+        &mut self,
+    ) -> Hashed<LazyArray<(LocalDefId, usize)>> {
         empty_proc_macro!(self);
         let stable_order_of_exportable_impls =
             self.tcx.stable_order_of_exportable_impls(LOCAL_CRATE);
@@ -3098,9 +3108,8 @@ fn with_encode_metadata_header<'tcx>(
         local_defs_remapping: Default::default(),
         syntax_context_remapping: Default::default(),
         local_expn_id_remapping: Default::default(),
-        rdr_hcx: hash_public_api.then(|| {
-            PublicApiHashingContext::new(StableHashState::new(tcx.sess, tcx.untracked()))
-        }),
+        rdr_hcx: hash_public_api
+            .then(|| PublicApiHashingContext::new(StableHashState::new(tcx.sess, tcx.untracked()))),
         hash_public_api,
         reachability_graph_builder: Default::default(),
         public_hash: None,
