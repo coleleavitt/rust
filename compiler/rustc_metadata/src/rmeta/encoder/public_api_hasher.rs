@@ -1076,6 +1076,10 @@ impl ItemPublicHashesBuilder {
             local: local.encode(&mut ecx.opaque),
             expn: expn.encode(&mut ecx.opaque),
             span: span.encode(&mut ecx.opaque),
+            source_files: {
+                let files = std::mem::take(&mut ecx.rdr_source_files);
+                ecx.lazy_array(files)
+            },
             public_global_hash,
         }
     }
@@ -1089,5 +1093,8 @@ pub(crate) struct ItemPublicHashes {
     /// records the digests of the items it used, so that it only needs to be rebuilt when one of
     /// those changes (`-Zcheck-span-reuse`).
     pub(crate) span: LazyTable<RemappedLocalDefId, DefIndex, Option<Fingerprint>>,
+    /// Name and source hash of each source file in the metadata. A dependent whose cached
+    /// diagnostics show positions in one of them must be rebuilt when it changes.
+    pub(crate) source_files: LazyArray<(String, String)>,
     pub(crate) public_global_hash: Fingerprint,
 }

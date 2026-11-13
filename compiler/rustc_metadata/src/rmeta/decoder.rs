@@ -791,6 +791,13 @@ impl MetadataBlob {
         Svh::new(Fingerprint::from_le_bytes(bytes))
     }
 
+    /// The source hash `-Zpublic-api-hash` recorded for a source file of this crate, see
+    /// `span_deps`.
+    pub(crate) fn rdr_source_file_hash(&self, root: &CrateRoot, name: &str) -> Option<String> {
+        let files = root.rdr_hashes.as_ref()?.source_files;
+        files.decode(self).find(|(file, _)| file == name).map(|(_, hash)| hash)
+    }
+
     /// The `DefIndex` of an item of this crate, looked up by its `DefPathHash` local hash.
     pub(crate) fn local_def_path_hash_to_def_index(
         &self,

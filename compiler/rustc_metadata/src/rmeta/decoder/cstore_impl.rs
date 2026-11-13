@@ -185,6 +185,12 @@ macro_rules! provide_one {
             {
                 cstore.span_sensitive_reads.lock().extend(MaybeDefId::as_def_id(&$def_id));
             }
+            if matches!(DepKind::$name, DepKind::def_span)
+                && $tcx.sess.opts.unstable_opts.public_api_hash
+                && $tcx.sess.opts.unstable_opts.debug_info_type_line_numbers
+            {
+                cstore.def_span_reads.lock().extend(MaybeDefId::as_def_id(&$def_id));
+            }
 
             $compute
         }

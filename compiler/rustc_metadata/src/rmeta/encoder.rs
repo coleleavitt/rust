@@ -106,6 +106,8 @@ pub(super) struct EncodeContext<'a, 'tcx> {
     public_hash: Option<Svh>,
     /// The span hash computed by `encode_crate_root`, see `public_api_hasher::public_span_hash`.
     public_span_hash: Option<Svh>,
+    /// Name and source hash of every source file in the metadata, see `span_deps`.
+    pub(super) rdr_source_files: Vec<(String, String)>,
 }
 
 /// If the current crate is a proc-macro, returns early with `LazyArray::default()`.
@@ -813,6 +815,10 @@ impl<'a, 'tcx> EncodeContext<'a, 'tcx> {
                 &adapted_source_file.name,
                 local_crate_stable_id,
             );
+
+            if self.hash_public_api {
+                self.rdr_source_files.push(source_file_key(&adapted_source_file));
+            }
 
             let on_disk_index: u32 =
                 on_disk_index.try_into().expect("cannot export more than U32_MAX files");
@@ -3141,6 +3147,7 @@ fn with_encode_metadata_header<'tcx>(
         reachability_graph_builder: Default::default(),
         public_hash: None,
         public_span_hash: None,
+        rdr_source_files: Vec::new(),
     };
 
     // Encode the rustc version string in a predictable location.
@@ -3353,4 +3360,10 @@ fn is_public_mod_child(
                 })
             })
     }
+}
+
+/// How a dependent and `-Zcheck-span-reuse` identify a source file of a dependency: the name it has
+/// in the metadata and its source hash (`<algorithm>=<hex>`).
+pub(super) fn source_file_key(file: &SourceFile) -> (String, String) {
+    (file.name.prefer_remapped_unconditionally().to_string(), file.src_hash.to_string())
 }

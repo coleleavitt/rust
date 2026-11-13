@@ -88,6 +88,9 @@ pub struct CStore {
     /// Items of dependencies whose span-sensitive data (MIR, macro definitions) this session read,
     /// with `-Zpublic-api-hash`. Written out by `span_deps::write_span_deps`.
     pub(crate) span_sensitive_reads: Lock<FxIndexSet<DefId>>,
+    /// With `-Zdebug-info-type-line-numbers`, the dependency items whose `def_span` this session
+    /// read: their lines can end up in type debuginfo. See `span_deps::write_span_deps`.
+    pub(crate) def_span_reads: Lock<FxIndexSet<DefId>>,
 }
 
 pub enum LoadedMacro {
@@ -618,6 +621,7 @@ impl CStore {
             used_extern_options: Default::default(),
             has_crate_resolve_with_fail: false,
             span_sensitive_reads: Default::default(),
+            def_span_reads: Default::default(),
         }
     }
 

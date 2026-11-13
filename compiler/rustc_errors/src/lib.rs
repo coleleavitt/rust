@@ -230,6 +230,11 @@ pub struct DiagCtxtHandle<'a> {
 struct DiagCtxtInner {
     flags: DiagCtxtFlags,
 
+    /// Every span shown by an emitted diagnostic, with the call and definition sites of the
+    /// expansions it comes from. `-Zpublic-api-hash` records those inside dependencies: a build
+    /// system that replays cached warnings must rebuild when one of them moves.
+    emitted_spans: Vec<Span>,
+
     /// The error guarantees from all emitted errors, each paired with the
     /// thread that emitted it. The length gives the error count.
     err_guars: Vec<(ErrorGuaranteed, ThreadId)>,
@@ -481,6 +486,7 @@ impl<'a> DiagCtxtHandle<'a> {
             fulfilled_expectations,
             ice_file: _,
             msrv: _,
+            emitted_spans: _,
         } = inner.deref_mut();
 
         // For the `Vec`s and `HashMap`s, we overwrite with an empty container to free the
@@ -809,6 +815,11 @@ impl<'a> DiagCtxtHandle<'a> {
         self.dcx.inner.borrow_mut().emit_diagnostic(diagnostic, self.tainted_with_errors)
     }
 
+    /// The spans shown by the diagnostics emitted so far, see `DiagCtxtInner::emitted_spans`.
+    pub fn emitted_spans(&self) -> Vec<Span> {
+        self.dcx.inner.borrow().emitted_spans.clone()
+    }
+
     pub fn emit_artifact_notification(&self, path: &Path, artifact_type: &str) {
         self.dcx.inner.borrow_mut().emitter.emit_artifact_notification(path, artifact_type);
     }
@@ -1114,6 +1125,7 @@ impl DiagCtxtInner {
         Self {
             flags: DiagCtxtFlags { can_emit_warnings: true, ..Default::default() },
             err_guars: Vec::new(),
+            emitted_spans: Vec::new(),
             lint_err_guars: Vec::new(),
             delayed_bugs: Vec::new(),
             deduplicated_err_count: 0,
@@ -1300,6 +1312,7 @@ impl DiagCtxtInner {
                 }
                 self.has_printed = true;
 
+                record_emitted_spans(&diagnostic, &mut self.emitted_spans);
                 self.emitter.emit_diagnostic(diagnostic);
             }
 
@@ -1692,4 +1705,34 @@ pub enum TerminalUrl {
     No,
     Yes,
     Auto,
+}
+
+fn record_emitted_spans(diagnostic: &DiagInner, out: &mut Vec<Span>) {
+    let mut push = |span: Span| {
+        if span.is_dummy() {
+            return;
+        }
+        out.push(span);
+        for expn in span.macro_backtrace() {
+            out.push(expn.call_site);
+            out.push(expn.def_site);
+        }
+    };
+    let mut multispan = |ms: &MultiSpan| {
+        ms.primary_spans().iter().copied().for_each(&mut push);
+        ms.span_labels().into_iter().for_each(|label| push(label.span));
+    };
+    multispan(&diagnostic.span);
+    for child in &diagnostic.children {
+        multispan(&child.span);
+    }
+    if let Suggestions::Enabled(suggestions) = &diagnostic.suggestions {
+        for suggestion in suggestions {
+            for substitution in &suggestion.substitutions {
+                for part in &substitution.parts {
+                    push(part.span);
+                }
+            }
+        }
+    }
 }
