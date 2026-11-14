@@ -1,6 +1,7 @@
-//@ known-bug: #142155
-//@ needs-rustc-debug-assertions
+// Regression test for #142155: the async-block variant of
+// `tail_expr_drop_order-on-coroutine-dropline.rs`.
 //@ edition: 2021
+//@ check-pass
 
 #![warn(tail_expr_drop_order)]
 use core::future::Future;
