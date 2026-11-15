@@ -1,0 +1,580 @@
+# Instincts generated from https://github.com/coleleavitt/rust
+# Generated: 2026-08-01T04:09:07.611Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: rust-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Commit Length
+
+## Action
+
+Write moderate-length commit messages (~59 characters)
+
+## Evidence
+
+- Average commit message length: 59 chars
+- Based on 78 commits
+
+---
+id: rust-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: rust-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: rust-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: rust-arch-type-based
+trigger: "when adding new code"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Arch Type Based
+
+## Action
+
+Place code in the appropriate type folder (components/, services/, utils/, etc.)
+
+## Evidence
+
+- Type-based module organization detected
+- Folders: bootstrap, ci, doc, librustdoc, tools
+
+---
+id: rust-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: rust-test-naming
+trigger: "when creating a test file"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Test Naming
+
+## Action
+
+Name test files using the pattern: *.test.ts
+
+## Evidence
+
+- File pattern: *.test.ts
+- Consistent across test files
+
+---
+id: rust-workflow-feature-development
+trigger: "when implementing a new feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Workflow Feature Development
+
+## Action
+
+Follow the feature-development workflow:
+1. Add feature implementation
+2. Add tests for feature
+3. Update documentation
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~8x per month
+- Files: **/*.test.*
+
+---
+id: rust-workflow-implement-feature-with-tests-and-docs
+trigger: "when doing implement feature with tests and docs"
+confidence: 0.7
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Workflow Implement Feature With Tests And Docs
+
+## Action
+
+Follow the implement-feature-with-tests-and-docs workflow:
+1. Implement or modify feature in source files (e.g., src/, compiler/)
+2. Update or add documentation files (e.g., src/doc/, *.md)
+3. Add or update test cases (e.g., tests/ui/, tests/rustdoc*, tests/ui/lint/, etc.)
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~4x per month
+- Files: compiler/*/src/**/*.rs, src/tools/**/*.rs, src/doc/**/*.md
+
+---
+id: rust-workflow-update-lint-attributes-or-remove-superfluous-attributes
+trigger: "when doing update lint attributes or remove superfluous attributes"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Workflow Update Lint Attributes Or Remove Superfluous Attributes
+
+## Action
+
+Follow the update-lint-attributes-or-remove-superfluous-attributes workflow:
+1. Edit multiple source files to update or remove lint attributes
+2. Optionally update related documentation or test files
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: compiler/rustc_*/src/**/*.rs
+
+---
+id: rust-workflow-add-or-update-config-setting-with-docs-and-ci
+trigger: "when doing add or update config setting with docs and ci"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Workflow Add Or Update Config Setting With Docs And Ci
+
+## Action
+
+Follow the add-or-update-config-setting-with-docs-and-ci workflow:
+1. Edit config source files (e.g., src/bootstrap/src/core/config/...)
+2. Update documentation files (e.g., INSTALL.md, bootstrap.example.toml)
+3. Update CI or Docker files if needed
+4. Update or add related test files
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: src/bootstrap/src/core/config/**/*.rs, bootstrap.example.toml, INSTALL.md
+
+---
+id: rust-workflow-add-or-update-tests-for-existing-feature-or-bugfix
+trigger: "when doing add or update tests for existing feature or bugfix"
+confidence: 0.7
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Workflow Add Or Update Tests For Existing Feature Or Bugfix
+
+## Action
+
+Follow the add-or-update-tests-for-existing-feature-or-bugfix workflow:
+1. Add or update test files (e.g., tests/ui/, tests/rustdoc*, tests/ui/lint/, etc.)
+2. Optionally update related source files for test harness or error output
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~4x per month
+- Files: tests/**/*.rs, tests/**/*.stderr, tests/**/*.js
+
+---
+id: rust-workflow-refactor-or-cleanup-across-multiple-modules
+trigger: "when doing refactor or cleanup across multiple modules"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/coleleavitt/rust
+---
+
+# Rust Workflow Refactor Or Cleanup Across Multiple Modules
+
+## Action
+
+Follow the refactor-or-cleanup-across-multiple-modules workflow:
+1. Edit multiple source files to refactor code (e.g., move functions, reorder arguments, clean imports)
+2. Update related test files if necessary
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: compiler/*/src/**/*.rs, src/tools/**/*.rs
+
+---
+id: rust-instinct-file-naming-camelcase
+trigger: "When creating a new file in the codebase"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct File Naming Camelcase
+
+## Action
+
+Name the file using camelCase
+
+## Evidence
+
+- Pattern in namingConventions.files: camelCase
+
+---
+id: rust-instinct-function-naming-camelcase
+trigger: "When defining a new function"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Function Naming Camelcase
+
+## Action
+
+Name the function using camelCase
+
+## Evidence
+
+- Pattern in namingConventions.functions: camelCase
+
+---
+id: rust-instinct-class-naming-pascalcase
+trigger: "When defining a new class or struct"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Class Naming Pascalcase
+
+## Action
+
+Name the class or struct using PascalCase
+
+## Evidence
+
+- Pattern in namingConventions.classes: PascalCase
+
+---
+id: rust-instinct-constant-naming-screaming-snake
+trigger: "When defining a constant"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Constant Naming Screaming Snake
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE
+
+## Evidence
+
+- Pattern in namingConventions.constants: SCREAMING_SNAKE_CASE
+
+---
+id: rust-instinct-import-style-relative
+trigger: "When importing modules in Rust code"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Import Style Relative
+
+## Action
+
+Use relative imports
+
+## Evidence
+
+- Pattern in importStyle: relative
+
+---
+id: rust-instinct-export-style-named
+trigger: "When exporting modules or items"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Export Style Named
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle: named
+
+---
+id: rust-instinct-test-file-location
+trigger: "When adding tests for a feature or bugfix"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Test File Location
+
+## Action
+
+Place test files in the 'tests/' directory, using .rs, .stderr, or .js extensions as appropriate
+
+## Evidence
+
+- Pattern in workflows: filesInvolved includes tests/**/*.rs, tests/**/*.stderr, tests/**/*.js
+
+---
+id: rust-instinct-test-type-unit
+trigger: "When writing tests"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Test Type Unit
+
+## Action
+
+Write unit tests as the primary test type
+
+## Evidence
+
+- Pattern in testing.testTypes: unit
+
+---
+id: rust-instinct-commit-prefix-feat-fix
+trigger: "When making a commit for a new feature or bugfix"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Commit Prefix Feat Fix
+
+## Action
+
+Prefix the commit message with 'feat:' for features or 'fix:' for bugfixes
+
+## Evidence
+
+- Pattern in commits.prefixes: feat, fix
+- Seen in commit: 'feat: parse `cfg_select!` within rustfmt'
+- Seen in commit: 'Fix invalidation of stdlib in bootstrap when using non-LLVM codegen backends'
+
+---
+id: rust-instinct-commit-length-brief
+trigger: "When writing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Commit Length Brief
+
+## Action
+
+Keep the commit message concise, around 59 characters on average
+
+## Evidence
+
+- Pattern in commits.averageLength: 59
+
+---
+id: rust-instinct-implement-feature-with-tests-and-docs
+trigger: "When adding a new compiler or tool feature, or making a significant change that needs to be tested and documented"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Implement Feature With Tests And Docs
+
+## Action
+
+Implement or modify the feature in source files, update or add documentation, and add or update test cases
+
+## Evidence
+
+- Workflow: implement-feature-with-tests-and-docs
+- Example commits and files in workflow
+
+---
+id: rust-instinct-update-lint-attributes
+trigger: "When updating, removing, or cleaning up lint attributes across the codebase"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Update Lint Attributes
+
+## Action
+
+Edit multiple source files to update or remove lint attributes, optionally updating related docs or test files
+
+## Evidence
+
+- Workflow: update-lint-attributes-or-remove-superfluous-attributes
+- Example commits and files in workflow
+
+---
+id: rust-instinct-update-config-setting
+trigger: "When adding, renaming, or changing a configuration option"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Update Config Setting
+
+## Action
+
+Edit config source files, update documentation, update CI or Docker files if needed, and update or add related test files
+
+## Evidence
+
+- Workflow: add-or-update-config-setting-with-docs-and-ci
+- Example commits and files in workflow
+
+---
+id: rust-instinct-add-or-update-tests
+trigger: "When adding or improving test coverage for a feature or fixing a regression"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Add Or Update Tests
+
+## Action
+
+Add or update test files and optionally update related source files for test harness or error output
+
+## Evidence
+
+- Workflow: add-or-update-tests-for-existing-feature-or-bugfix
+- Example commits and files in workflow
+
+---
+id: rust-instinct-refactor-or-cleanup
+trigger: "When refactoring code for clarity, maintainability, or style compliance"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: coleleavitt/rust
+---
+
+# Rust Instinct Refactor Or Cleanup
+
+## Action
+
+Edit multiple source files to refactor code and update related test files if necessary
+
+## Evidence
+
+- Workflow: refactor-or-cleanup-across-multiple-modules
+- Example commits and files in workflow
+
