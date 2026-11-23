@@ -471,6 +471,11 @@ impl TyKind {
     }
 
     #[inline]
+    pub fn is_coroutine_closure(&self) -> bool {
+        matches!(self, TyKind::RigidTy(RigidTy::CoroutineClosure(..)))
+    }
+
+    #[inline]
     pub fn is_box(&self) -> bool {
         match self {
             TyKind::RigidTy(RigidTy::Adt(def, _)) => def.is_box(),
@@ -524,12 +529,16 @@ impl TyKind {
         }
     }
 
-    /// Get the function signature for function like types (Fn, FnPtr, and Closure)
+    /// Get the function signature for function like types (Fn, FnPtr, Closure and
+    /// CoroutineClosure). An async closure's signature returns the coroutine a call creates.
     pub fn fn_sig(&self) -> Option<PolyFnSig> {
         match self {
             TyKind::RigidTy(RigidTy::FnDef(def, args)) => Some(with(|cx| cx.fn_sig(*def, args))),
             TyKind::RigidTy(RigidTy::FnPtr(sig)) => Some(sig.clone()),
             TyKind::RigidTy(RigidTy::Closure(_def, args)) => Some(with(|cx| cx.closure_sig(args))),
+            TyKind::RigidTy(RigidTy::CoroutineClosure(def, args)) => {
+                Some(with(|cx| cx.coroutine_closure_sig(*def, args)))
+            }
             _ => None,
         }
     }
