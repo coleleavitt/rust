@@ -18,10 +18,10 @@ use crate::mir::{BinOp, Body, Place, UnOp};
 use crate::target::{MachineInfo, MachineSize};
 use crate::ty::{
     AdtDef, AdtKind, Allocation, AssocItem, Asyncness, ClosureDef, ClosureKind, Constness,
-    CoroutineDef, Discr, FieldDef, FloatTy, FnDef, ForeignDef, ForeignItemKind, ForeignModule,
-    ForeignModuleDef, GenericArgs, GenericClauses, Generics, ImplDef, ImplTrait, IntrinsicDef,
-    LineInfo, MirConst, PolyFnSig, RigidTy, Span, TraitDecl, TraitDef, TraitRef, Ty, TyConst,
-    TyConstId, TyKind, UintTy, VariantDef, VariantIdx, VtblEntry,
+    CoroutineClosureDef, CoroutineDef, Discr, FieldDef, FloatTy, FnDef, ForeignDef,
+    ForeignItemKind, ForeignModule, ForeignModuleDef, GenericArgs, GenericClauses, Generics,
+    ImplDef, ImplTrait, IntrinsicDef, LineInfo, MirConst, PolyFnSig, RigidTy, Span, TraitDecl,
+    TraitDef, TraitRef, Ty, TyConst, TyConstId, TyKind, UintTy, VariantDef, VariantIdx, VtblEntry,
 };
 use crate::unstable::{RustcInternal, Stable, new_item_kind};
 use crate::{
@@ -448,6 +448,20 @@ impl<'tcx> CompilerInterface<'tcx> {
         self.with_cx(|tables, cx| {
             let args_ref = args.internal(tables, cx.tcx);
             cx.closure_sig(args_ref).stable(tables, cx)
+        })
+    }
+
+    /// Retrieve the signature of calling a coroutine-closure: its tupled inputs, returning the
+    /// coroutine its own closure kind creates.
+    pub(crate) fn coroutine_closure_sig(
+        &self,
+        def: CoroutineClosureDef,
+        args: &GenericArgs,
+    ) -> PolyFnSig {
+        self.with_cx(|tables, cx| {
+            let def_id = def.0.internal(tables, cx.tcx);
+            let args_ref = args.internal(tables, cx.tcx);
+            cx.coroutine_closure_sig(def_id, args_ref).stable(tables, cx)
         })
     }
 

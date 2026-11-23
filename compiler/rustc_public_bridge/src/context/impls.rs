@@ -426,6 +426,32 @@ impl<'tcx, B: Bridge> CompilerCtxt<'tcx, B> {
         args_ref.as_closure().sig()
     }
 
+    /// Retrieve the signature of calling a coroutine-closure (an async closure): its tupled
+    /// inputs, returning the coroutine its own closure kind creates.
+    pub fn coroutine_closure_sig(
+        &self,
+        def_id: DefId,
+        args_ref: GenericArgs<'tcx>,
+    ) -> Binder<'tcx, FnSig<'tcx>> {
+        let tcx = self.tcx;
+        let args = args_ref.as_coroutine_closure();
+        args.coroutine_closure_sig().map_bound(|sig| {
+            tcx.mk_fn_sig(
+                [sig.tupled_inputs_ty],
+                sig.to_coroutine_given_kind_and_upvars(
+                    tcx,
+                    args.parent_args(),
+                    tcx.coroutine_for_closure(def_id),
+                    args.kind(),
+                    tcx.lifetimes.re_erased,
+                    args.tupled_upvars_ty(),
+                    args.coroutine_captures_by_ref_ty(),
+                ),
+                sig.fn_sig_kind,
+            )
+        })
+    }
+
     /// The number of variants in this ADT.
     pub fn adt_variants_len(&self, def: AdtDef<'tcx>) -> usize {
         def.variants().len()
