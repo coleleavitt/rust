@@ -480,8 +480,11 @@ impl<'tcx> Stable<'tcx> for ty::TyKind<'tcx> {
                 tables.closure_def(*def_id),
                 generic_args.stable(tables, cx),
             )),
-            ty::CoroutineClosure(..) => {
-                unimplemented!("FIXME(async_closures): Lower these to SMIR")
+            ty::CoroutineClosure(def_id, generic_args) => {
+                TyKind::RigidTy(RigidTy::CoroutineClosure(
+                    tables.coroutine_closure_def(*def_id),
+                    generic_args.stable(tables, cx),
+                ))
             }
             ty::Coroutine(def_id, generic_args) => TyKind::RigidTy(RigidTy::Coroutine(
                 tables.coroutine_def(*def_id),
